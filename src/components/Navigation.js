@@ -1,0 +1,109 @@
+import React, { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import {
+  Home,
+  HardDrive,
+  Key,
+  BarChart3,
+  Settings,
+  Menu,
+  X,
+  Database,
+  Shield,
+  Users,
+} from "lucide-react";
+import AuthButtons from "./AuthButtons";
+
+const Navigation = () => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false
+  );
+  const location = useLocation();
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 1024);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const isNavCollapsed = isCollapsed || isMobile;
+  const widthClass = isNavCollapsed ? "w-[72px]" : "w-72";
+
+  const navItems = [
+    { path: "/", label: "Dashboard", icon: Home },
+    { path: "/assets", label: "Asset Management", icon: HardDrive },
+    { path: "/licenses", label: "License Management", icon: Key },
+    { path: "/reports", label: "Reports & Analytics", icon: BarChart3 },
+    { path: "/settings", label: "Settings", icon: Settings },
+  ];
+
+  const isActive = (path) => location.pathname === path;
+
+  return (
+    <nav
+      className={`fixed h-screen z-[1000] shadow-lg bg-gradient-to-br from-slate-800 to-slate-700 text-white transition-[width] duration-300 ${widthClass}`}
+    >
+      <div className="flex items-center justify-between px-4 sm:px-6 py-5 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          {!isNavCollapsed && (
+            <>
+              <Database className="w-8 h-8 text-blue-400" />
+              <span className="text-xl font-bold tracking-tight">SVH CMDB</span>
+            </>
+          )}
+        </div>
+        <button
+          className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          title={isNavCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isNavCollapsed ? <Menu size={20} /> : <X size={20} />}
+        </button>
+      </div>
+
+      <div className="flex flex-col py-4 h-[calc(100vh-76px)]">
+        <ul className="space-y-1 flex-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.path);
+            return (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  className={`mx-2 flex items-center gap-3 rounded-md px-2 sm:px-4 py-2 text-slate-300 hover:text-white transition-colors ${
+                    active ? "bg-blue-500 text-white" : "hover:bg-white/10"
+                  } ${isNavCollapsed ? "justify-center" : ""}`}
+                  title={isNavCollapsed ? item.label : ""}
+                >
+                  <Icon size={20} className="shrink-0" />
+                  {!isNavCollapsed && (
+                    <span className="font-medium">{item.label}</span>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
+        {!isNavCollapsed && (
+          <div className="mt-auto px-4 pt-4 border-t border-white/10">
+            <div className="space-y-2 text-slate-300 mb-3">
+              <div className="flex items-center gap-2 text-xs">
+                <Shield size={14} />
+                <span>Secure CMDB</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <Users size={14} />
+                <span>Multi-Venture</span>
+              </div>
+            </div>
+            <AuthButtons />
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+};
+
+export default Navigation;
