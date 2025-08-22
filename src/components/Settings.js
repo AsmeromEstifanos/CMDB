@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useAssets } from "../context/AssetContext";
+import LoadingSpinner from "./LoadingSpinner";
 import {
   Plus,
   Edit,
@@ -12,16 +13,11 @@ import {
   Activity,
   Truck,
   Code,
+  Loader,
 } from "lucide-react";
 
 const Settings = () => {
   const {
-    ventures,
-    departments,
-    categories,
-    statuses,
-    suppliers,
-    software,
     // Table data with proper IDs
     categoriesTable,
     venturesTable,
@@ -55,6 +51,16 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("categories");
   const [editingItem, setEditingItem] = useState(null);
   const [newItemName, setNewItemName] = useState("");
+
+  // State for tracking deleting items for each type
+  const [deletingItems, setDeletingItems] = useState({
+    categories: new Set(),
+    ventures: new Set(),
+    departments: new Set(),
+    statuses: new Set(),
+    suppliers: new Set(),
+    software: new Set(),
+  });
 
   const handleAdd = async (type) => {
     if (!newItemName.trim()) return;
@@ -124,6 +130,12 @@ const Settings = () => {
     if (!window.confirm("Are you sure you want to delete this item?")) return;
 
     try {
+      // Set loading state for this specific item
+      setDeletingItems((prev) => ({
+        ...prev,
+        [type]: new Set(prev[type]).add(itemId),
+      }));
+
       switch (type) {
         case "categories":
           await deleteCategory(itemId);
@@ -148,6 +160,12 @@ const Settings = () => {
       }
     } catch (error) {
       console.error(`Failed to delete ${type}:`, error);
+    } finally {
+      // Clear loading state for this item
+      setDeletingItems((prev) => ({
+        ...prev,
+        [type]: new Set([...prev[type]].filter((id) => id !== itemId)),
+      }));
     }
   };
 
@@ -208,6 +226,14 @@ const Settings = () => {
         return "Settings";
     }
   };
+
+  const isItemDeleting = (type, itemId) => {
+    return deletingItems[type].has(itemId);
+  };
+
+  if (loading) {
+    return <LoadingSpinner text="Loading settings..." />;
+  }
 
   const renderTabContent = () => {
     const items = getItems(activeTab);
@@ -398,9 +424,15 @@ const Settings = () => {
                                 ? "opacity-40 cursor-not-allowed pointer-events-none"
                                 : ""
                             }`}
-                            disabled={!item.id}
+                            disabled={
+                              !item.id || isItemDeleting(activeTab, item.id)
+                            }
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {isItemDeleting(activeTab, item.id) ? (
+                              <Loader className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
                           </button>
                         </div>
                       )}

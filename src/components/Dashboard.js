@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useAssets } from "../context/AssetContext";
+import LoadingSpinner from "./LoadingSpinner";
 import {
   HardDrive,
   Key,
@@ -18,6 +19,7 @@ const Dashboard = () => {
     assets,
     licenses,
     ventures,
+    loading,
     getAssetsByVenture,
     getAssetsByCategory,
     getExpiringLicenses,
@@ -26,47 +28,81 @@ const Dashboard = () => {
   const [selectedVenture, setSelectedVenture] = useState("All Ventures");
   const [selectedPeriod, setSelectedPeriod] = useState("30");
 
-  const totalAssets = assets.length;
-  const totalLicenses = licenses.length;
-  const totalValue = assets.reduce((sum, asset) => sum + (asset.cost || 0), 0);
-  const expiringLicenses = getExpiringLicenses(parseInt(selectedPeriod));
+  // Filter assets based on selected venture
+  const filteredAssets = loading
+    ? []
+    : selectedVenture === "All Ventures"
+    ? assets
+    : assets.filter((asset) => asset.venture === selectedVenture);
 
-  const ventureStats = ventures.map((venture) => ({
-    name: venture,
-    count: getAssetsByVenture(venture).length,
-    value: getAssetsByVenture(venture).reduce(
-      (sum, asset) => sum + (asset.cost || 0),
-      0
-    ),
-  }));
+  const totalAssets = loading
+    ? 0
+    : selectedVenture === "All Ventures"
+    ? assets.length
+    : filteredAssets.length;
+  const totalLicenses = loading ? 0 : licenses.length;
+  const totalValue = loading
+    ? 0
+    : (selectedVenture === "All Ventures" ? assets : filteredAssets).reduce(
+        (sum, asset) => sum + (asset.cost || 0),
+        0
+      );
+  const expiringLicenses = loading
+    ? []
+    : getExpiringLicenses(parseInt(selectedPeriod));
 
-  const categoryStats = [
-    "Laptop",
-    "Desktop",
-    "Server",
-    "Network",
-    "Mobile",
-    "Peripheral",
-    "Software",
-    "Other",
-  ]
-    .map((category) => ({
-      name: category,
-      count: getAssetsByCategory(category).length,
-    }))
-    .filter((stat) => stat.count > 0);
+  const ventureStats = loading
+    ? []
+    : (selectedVenture === "All Ventures" ? ventures : [selectedVenture]).map(
+        (venture) => ({
+          name: venture,
+          count: getAssetsByVenture(venture).length,
+          value: getAssetsByVenture(venture).reduce(
+            (sum, asset) => sum + (asset.cost || 0),
+            0
+          ),
+        })
+      );
 
-  const recentActivities = [...assets, ...licenses]
-    .flatMap((item) =>
-      (item.history || []).map((history) => ({
-        ...history,
-        itemName: item.name,
-        itemType: item.software ? "License" : "Asset",
-        date: new Date(history.date),
-      }))
-    )
-    .sort((a, b) => b.date - a.date)
-    .slice(0, 10);
+  const categoryStats = loading
+    ? []
+    : [
+        "Laptop",
+        "Desktop",
+        "Server",
+        "Network",
+        "Mobile",
+        "Peripheral",
+        "Software",
+        "Other",
+      ]
+        .map((category) => ({
+          name: category,
+          count: getAssetsByCategory(category).filter(
+            (asset) =>
+              selectedVenture === "All Ventures" ||
+              asset.venture === selectedVenture
+          ).length,
+        }))
+        .filter((stat) => stat.count > 0);
+
+  const recentActivities = loading
+    ? []
+    : [...assets, ...licenses]
+        .flatMap((item) =>
+          (item.history || []).map((history) => ({
+            ...history,
+            itemName: item.name,
+            itemType: item.software ? "License" : "Asset",
+            date: new Date(history.date),
+          }))
+        )
+        .sort((a, b) => b.date - a.date)
+        .slice(0, 10);
+
+  if (loading) {
+    return <LoadingSpinner text="Loading dashboard data..." />;
+  }
 
   return (
     <div className="space-y-8">
@@ -133,6 +169,14 @@ const Dashboard = () => {
       </div>
 
       <div className="card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">Filters</h3>
+          {(selectedVenture !== "All Ventures" || selectedPeriod !== "30") && (
+            <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+              Filters Active
+            </span>
+          )}
+        </div>
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
           <div>
             <label className="block text-slate-700 font-medium mb-2">
@@ -165,6 +209,17 @@ const Dashboard = () => {
               <option value="90">Next 90 days</option>
             </select>
           </div>
+        </div>
+        <div className="flex justify-end mt-4">
+          <button
+            onClick={() => {
+              setSelectedVenture("All Ventures");
+              setSelectedPeriod("30");
+            }}
+            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors"
+          >
+            Clear Filters
+          </button>
         </div>
       </div>
 
@@ -314,18 +369,6 @@ const Dashboard = () => {
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">
-              Quick Actions
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <button className="btn btn-primary">Add New Asset</button>
-              <button className="btn btn-secondary">Add New License</button>
-              <button className="btn btn-success">Generate Report</button>
-              <button className="btn btn-info">Export Data</button>
             </div>
           </div>
         </div>

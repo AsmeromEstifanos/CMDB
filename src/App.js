@@ -9,13 +9,34 @@ import Settings from "./components/Settings";
 import { AssetProvider } from "./context/AssetContext";
 import "./tailwind.css";
 import { useIsAuthenticated } from "@azure/msal-react";
+import { Menu, Database } from "lucide-react";
+
+const MobileHeader = ({ onMenuClick }) => {
+  return (
+    <div className="lg:hidden fixed top-0 left-0 right-0 z-[998] bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <Database className="w-6 h-6 text-blue-400" />
+        <span className="text-lg font-bold text-slate-800">SVH CMDB</span>
+      </div>
+      <button
+        onClick={onMenuClick}
+        className="p-2 rounded-md text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+      >
+        <Menu size={20} />
+      </button>
+    </div>
+  );
+};
 
 const AppShell = () => {
   const isAuthenticated = useIsAuthenticated();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
   return (
     <div className="flex min-h-screen">
-      <Navigation />
-      <main className="flex-1 bg-slate-50 overflow-y-auto p-4 sm:p-6 lg:p-8 ml-[72px] lg:ml-72">
+      <Navigation isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
+      <MobileHeader onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} />
+      <main className="flex-1 bg-slate-50 overflow-y-auto p-4 sm:p-6 lg:p-8 lg:ml-72 pt-20 lg:pt-8">
         {isAuthenticated ? (
           <Routes>
             <Route path="/" element={<Dashboard />} />

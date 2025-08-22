@@ -10,6 +10,7 @@ import {
   Server,
 } from "lucide-react";
 import { formatDate, generateAssetTag } from "../utils/helpers";
+import LoadingSpinner from "./LoadingSpinner";
 
 const AssetForm = ({ asset, onClose }) => {
   const {
@@ -20,6 +21,7 @@ const AssetForm = ({ asset, onClose }) => {
     categories,
     statuses,
     assets,
+    loading,
   } = useAssets();
 
   const [formData, setFormData] = useState({
@@ -170,6 +172,14 @@ const AssetForm = ({ asset, onClose }) => {
       .filter((a) => a.id !== asset?.id && a.category !== "Software")
       .map((a) => ({ value: a.id, label: `${a.name} (${a.assetTag})` }));
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-[1000] bg-black/50 flex items-center justify-center p-4">
+        <LoadingSpinner text="Loading form data..." />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black/50 flex items-center justify-center p-4">

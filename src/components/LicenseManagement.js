@@ -12,6 +12,7 @@ import {
   Key,
   AlertTriangle,
   Calendar,
+  Loader,
 } from "lucide-react";
 import {
   formatCurrency,
@@ -19,11 +20,20 @@ import {
   daysUntilRenewal,
   exportToCSV,
   exportToJSON,
+  importFromFile,
 } from "../utils/helpers";
 import LicenseForm from "./LicenseForm";
+import LoadingSpinner from "./LoadingSpinner";
 
 const LicenseManagement = () => {
-  const { licenses, ventures, departments, deleteLicense } = useAssets();
+  const {
+    licenses,
+    ventures,
+    departments,
+    deleteLicense,
+    loading,
+    addLicense,
+  } = useAssets();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedVenture, setSelectedVenture] = useState("");
@@ -33,18 +43,30 @@ const LicenseManagement = () => {
   const [sortDirection, setSortDirection] = useState("asc");
   const [showLicenseForm, setShowLicenseForm] = useState(false);
   const [editingLicense, setEditingLicense] = useState(null);
+  const [deletingLicenses, setDeletingLicenses] = useState(new Set());
+  const [isImporting, setIsImporting] = useState(false);
 
   const filteredLicenses = useMemo(() => {
+    if (loading) return [];
+
     let filtered = licenses;
     if (searchQuery) {
       filtered = filtered.filter(
         (license) =>
-          license.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          license.licenseNumber
-            .toLowerCase()
-            .includes(searchQuery.toLowerCase()) ||
-          license.venture.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          license.department.toLowerCase().includes(searchQuery.toLowerCase())
+          (license.name &&
+            license.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (license.licenseNumber &&
+            license.licenseNumber
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())) ||
+          (license.venture &&
+            license.venture
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())) ||
+          (license.department &&
+            license.department
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase()))
       );
     }
     if (selectedVenture)
@@ -62,6 +84,11 @@ const LicenseManagement = () => {
     filtered.sort((a, b) => {
       let aValue = a[sortField];
       let bValue = b[sortField];
+
+      // Handle undefined/null values
+      if (aValue === undefined || aValue === null) aValue = "";
+      if (bValue === undefined || bValue === null) bValue = "";
+
       if (sortField === "renewalDate") {
         aValue = new Date(aValue);
         bValue = new Date(bValue);
@@ -87,6 +114,7 @@ const LicenseManagement = () => {
     selectedExpiryFilter,
     sortField,
     sortDirection,
+    loading,
   ]);
 
   const handleSort = (field) => {
@@ -98,14 +126,156 @@ const LicenseManagement = () => {
     }
   };
 
-  const handleDelete = (licenseId) => {
-    if (window.confirm("Are you sure you want to delete this license?"))
-      deleteLicense(licenseId);
+  const handleDelete = async (licenseId) => {
+    if (window.confirm("Are you sure you want to delete this license?")) {
+      try {
+        // Set loading state for this specific license
+        setDeletingLicenses((prev) => new Set(prev).add(licenseId));
+
+        const success = await deleteLicense(licenseId);
+        if (success) {
+          console.log(`License ${licenseId} deleted successfully`);
+        } else {
+          console.error(`Failed to delete license ${licenseId}`);
+        }
+      } catch (error) {
+        console.error("Error deleting license:", error);
+      } finally {
+        // Clear loading state for this license
+        setDeletingLicenses((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(licenseId);
+          return newSet;
+        });
+      }
+    }
   };
 
   const handleExport = (format) => {
     if (format === "csv") exportToCSV(filteredLicenses, "svh-licenses");
     else exportToJSON(filteredLicenses, "svh-licenses");
+  };
+
+  const handleImport = async (file) => {
+    setIsImporting(true);
+    try {
+      // Determine file type from extension
+      const fileExtension = file.name.split(".").pop().toLowerCase();
+      console.log(`[Import] Processing ${fileExtension} file: ${file.name}`);
+
+      const importedLicenses = await importFromFile(file, fileExtension);
+      console.log(
+        `[Import] Parsed ${importedLicenses?.length || 0} licenses:`,
+        importedLicenses
+      );
+
+      if (importedLicenses && importedLicenses.length > 0) {
+        console.log(
+          `${importedLicenses.length} licenses imported successfully.`
+        );
+
+        // Process each imported license
+        for (const licenseData of importedLicenses) {
+          try {
+            console.log(`[Import] Processing license:`, licenseData);
+
+            // Create a normalized license object
+            const normalizedLicense = {
+              name:
+                licenseData.name ||
+                licenseData.Name ||
+                licenseData.licenseName ||
+                "",
+              licenseNumber:
+                licenseData.licenseNumber ||
+                licenseData.LicenseNumber ||
+                licenseData.number ||
+                "",
+              software:
+                licenseData.software ||
+                licenseData.Software ||
+                licenseData.appName ||
+                "",
+              venture:
+                licenseData.venture ||
+                licenseData.Venture ||
+                licenseData.ventureName ||
+                "Default",
+              department:
+                licenseData.department ||
+                licenseData.Department ||
+                licenseData.deptName ||
+                "Default",
+              renewalDate:
+                licenseData.renewalDate ||
+                licenseData.RenewalDate ||
+                licenseData.expiryDate ||
+                new Date().toISOString().split("T")[0],
+              cost:
+                parseFloat(
+                  licenseData.cost ||
+                    licenseData.Cost ||
+                    licenseData.licenseCost ||
+                    0
+                ) || 0,
+              quantity:
+                parseInt(
+                  licenseData.quantity ||
+                    licenseData.Quantity ||
+                    licenseData.totalSeats ||
+                    1
+                ) || 1,
+              used:
+                parseInt(
+                  licenseData.used ||
+                    licenseData.Used ||
+                    licenseData.usedSeats ||
+                    0
+                ) || 0,
+              notes:
+                licenseData.notes ||
+                licenseData.Notes ||
+                licenseData.description ||
+                "",
+              // Add other fields as needed
+            };
+
+            console.log(`[Import] Normalized license:`, normalizedLicense);
+
+            // Add to context using the addLicense function
+            await addLicense(normalizedLicense);
+            console.log(
+              `[Import] License added successfully:`,
+              normalizedLicense.name
+            );
+          } catch (licenseError) {
+            console.error(
+              "Error processing imported license:",
+              licenseError,
+              licenseData
+            );
+          }
+        }
+
+        // Show success message
+        alert(`Successfully imported ${importedLicenses.length} licenses!`);
+      } else {
+        console.warn("No licenses imported from the file.");
+        alert("No licenses found in the imported file.");
+      }
+    } catch (error) {
+      console.error("Error importing licenses:", error);
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      alert(
+        `Error importing licenses: ${error.message}. Please check the file format.`
+      );
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const clearFilters = () => {
@@ -126,6 +296,10 @@ const LicenseManagement = () => {
     if (daysLeft <= 90) return "bg-blue-100 text-blue-800";
     return "bg-emerald-100 text-emerald-800";
   };
+
+  if (loading) {
+    return <LoadingSpinner text="Loading licenses..." />;
+  }
 
   return (
     <div className="space-y-6">
@@ -149,15 +323,48 @@ const LicenseManagement = () => {
           />
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button className="btn btn-secondary">
-            <Upload size={16} />
-            <span className="ml-2">Import</span>
+          <input
+            type="file"
+            id="import-license-file"
+            accept=".csv,.json,.txt"
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (file) {
+                // Determine file type from extension
+                const fileExtension = file.name.split(".").pop().toLowerCase();
+                if (fileExtension === "csv" || fileExtension === "json") {
+                  handleImport(file);
+                } else {
+                  alert("Please select a CSV or JSON file.");
+                }
+              }
+              // Reset the input so the same file can be selected again
+              e.target.value = "";
+            }}
+            className="hidden"
+          />
+          <button
+            className="btn btn-secondary"
+            onClick={() =>
+              document.getElementById("import-license-file").click()
+            }
+            disabled={isImporting}
+            title="Import licenses from CSV or JSON file"
+          >
+            {isImporting ? (
+              <Loader size={16} className="animate-spin" />
+            ) : (
+              <>
+                <Download size={16} />
+                <span className="ml-2">Import</span>
+              </>
+            )}
           </button>
           <button
             className="btn btn-secondary"
             onClick={() => handleExport("csv")}
           >
-            <Download size={16} />
+            <Upload size={16} />
             <span className="ml-2">Export CSV</span>
           </button>
           <button
@@ -229,184 +436,204 @@ const LicenseManagement = () => {
         </div>
       </div>
 
-      <div className="text-slate-500 text-sm">
-        Showing {filteredLicenses.length} of {licenses.length} licenses
-      </div>
+      {!loading && (
+        <>
+          <div className="text-slate-500 text-sm">
+            Showing {filteredLicenses.length} of {licenses.length} licenses
+          </div>
 
-      <div className="card overflow-x-auto">
-        <table className="table min-w-[900px]">
-          <thead>
-            <tr>
-              <th className="cursor-pointer" onClick={() => handleSort("name")}>
-                License Name {getSortIcon("name")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("licenseNumber")}
-              >
-                License Number {getSortIcon("licenseNumber")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("venture")}
-              >
-                Venture {getSortIcon("venture")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("department")}
-              >
-                Department {getSortIcon("department")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("renewalDate")}
-              >
-                Renewal Date {getSortIcon("renewalDate")}
-              </th>
-              <th className="cursor-pointer" onClick={() => handleSort("cost")}>
-                Cost {getSortIcon("cost")}
-              </th>
-              <th>Usage</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredLicenses.length > 0 ? (
-              filteredLicenses.map((license) => {
-                const daysLeft = daysUntilRenewal(license.renewalDate);
-                return (
-                  <tr key={license.id} className="">
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl w-6 text-center">🔑</span>
-                        <div className="leading-tight">
-                          <div className="font-medium text-slate-800">
-                            {license.name}
+          <div className="card overflow-x-auto">
+            <table className="table min-w-[900px]">
+              <thead>
+                <tr>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("name")}
+                  >
+                    License Name {getSortIcon("name")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("licenseNumber")}
+                  >
+                    License Number {getSortIcon("licenseNumber")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("venture")}
+                  >
+                    Venture {getSortIcon("venture")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("department")}
+                  >
+                    Department {getSortIcon("department")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("renewalDate")}
+                  >
+                    Renewal Date {getSortIcon("renewalDate")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("cost")}
+                  >
+                    Cost {getSortIcon("cost")}
+                  </th>
+                  <th>Usage</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLicenses.length > 0 ? (
+                  filteredLicenses.map((license) => {
+                    const daysLeft = daysUntilRenewal(license.renewalDate);
+                    return (
+                      <tr key={license.id} className="">
+                        <td>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xl w-6 text-center">🔑</span>
+                            <div className="leading-tight">
+                              <div className="font-medium text-slate-800">
+                                {license.software}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {license.name}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-xs text-slate-500">
-                            {license.software}
+                        </td>
+                        <td className="font-mono">{license.licenseNumber}</td>
+                        <td>
+                          <span className="px-2 py-1 rounded bg-sky-100 text-sky-800 text-xs font-medium">
+                            {license.venture}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">
+                            {license.department}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="leading-tight">
+                            <div className="text-slate-800 text-sm">
+                              {formatDisplayDate(license.renewalDate)}
+                            </div>
+                            <div
+                              className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded ${getExpiryStatusClass(
+                                license.renewalDate
+                              )}`}
+                            >
+                              {daysLeft !== null
+                                ? `${daysLeft} days`
+                                : "Unknown"}
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="font-mono">{license.licenseNumber}</td>
-                    <td>
-                      <span className="px-2 py-1 rounded bg-sky-100 text-sky-800 text-xs font-medium">
-                        {license.venture}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">
-                        {license.department}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="leading-tight">
-                        <div className="text-slate-800 text-sm">
-                          {formatDisplayDate(license.renewalDate)}
-                        </div>
-                        <div
-                          className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded ${getExpiryStatusClass(
-                            license.renewalDate
-                          )}`}
-                        >
-                          {daysLeft !== null ? `${daysLeft} days` : "Unknown"}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="font-mono text-emerald-700 font-semibold">
-                      {formatCurrency(license.cost)}
-                    </td>
-                    <td>
-                      <div className="min-w-[120px]">
-                        <div className="text-xs text-slate-500 text-center">
-                          {license.used} / {license.quantity}
-                        </div>
-                        <div className="h-1.5 bg-slate-200 rounded">
-                          <div
-                            className="h-1.5 bg-emerald-600 rounded"
-                            style={{
-                              width: `${
-                                (license.used / license.quantity) * 100
-                              }%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span
-                        className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded ${getExpiryStatusClass(
-                          license.renewalDate
-                        )}`}
-                      >
-                        {daysLeft !== null &&
-                          (daysLeft <= 7 ? (
-                            <AlertTriangle size={16} />
-                          ) : (
-                            <Calendar size={16} />
-                          ))}
-                        <span className="ml-1">
-                          {daysLeft !== null
-                            ? daysLeft <= 7
-                              ? "urgent"
-                              : daysLeft <= 30
-                              ? "warning"
-                              : daysLeft <= 90
-                              ? "notice"
-                              : "normal"
-                            : "unknown"}
-                        </span>
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex gap-2">
-                        <button
-                          className="btn btn-sm btn-secondary"
-                          title="View Details"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        <button
-                          className="btn btn-sm btn-primary"
-                          title="Edit License"
-                          onClick={() => {
-                            setEditingLicense(license);
-                            setShowLicenseForm(true);
-                          }}
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => handleDelete(license.id)}
-                          title="Delete License"
-                        >
-                          <Trash2 size={16} />
+                        </td>
+                        <td className="font-mono text-emerald-700 font-semibold">
+                          {formatCurrency(license.cost)}
+                        </td>
+                        <td>
+                          <div className="min-w-[120px]">
+                            <div className="text-xs text-slate-500 text-center">
+                              {license.used} / {license.quantity}
+                            </div>
+                            <div className="h-1.5 bg-slate-200 rounded">
+                              <div
+                                className="h-1.5 bg-emerald-600 rounded"
+                                style={{
+                                  width: `${
+                                    (license.used / license.quantity) * 100
+                                  }%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded ${getExpiryStatusClass(
+                              license.renewalDate
+                            )}`}
+                          >
+                            {daysLeft !== null &&
+                              (daysLeft <= 7 ? (
+                                <AlertTriangle size={16} />
+                              ) : (
+                                <Calendar size={16} />
+                              ))}
+                            <span className="ml-1">
+                              {daysLeft !== null
+                                ? daysLeft <= 7
+                                  ? "urgent"
+                                  : daysLeft <= 30
+                                  ? "warning"
+                                  : daysLeft <= 90
+                                  ? "notice"
+                                  : "active"
+                                : "unknown"}
+                            </span>
+                          </span>
+                        </td>
+                        <td>
+                          <div className="flex gap-2">
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              title="View Details"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <button
+                              className="btn btn-sm btn-primary"
+                              title="Edit License"
+                              onClick={() => {
+                                setEditingLicense(license);
+                                setShowLicenseForm(true);
+                              }}
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button
+                              className="btn btn-sm btn-danger"
+                              onClick={() => handleDelete(license.id)}
+                              title="Delete License"
+                              disabled={deletingLicenses.has(license.id)}
+                            >
+                              {deletingLicenses.has(license.id) ? (
+                                <Loader size={16} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={16} />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan="9" className="px-3 py-8">
+                      <div className="text-center text-slate-500">
+                        <Key
+                          size={48}
+                          className="mx-auto mb-2 text-slate-300"
+                        />
+                        <p>No licenses found matching your criteria</p>
+                        <button className="btn btn-primary mt-3">
+                          Add Your First License
                         </button>
                       </div>
                     </td>
                   </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan="9" className="px-3 py-8">
-                  <div className="text-center text-slate-500">
-                    <Key size={48} className="mx-auto mb-2 text-slate-300" />
-                    <p>No licenses found matching your criteria</p>
-                    <button className="btn btn-primary mt-3">
-                      Add Your First License
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {showLicenseForm && (
         <LicenseForm

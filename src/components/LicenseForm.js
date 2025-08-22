@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAssets } from "../context/AssetContext";
 import { X, Save, Key } from "lucide-react";
+import LoadingSpinner from "./LoadingSpinner";
 
 const LicenseForm = ({ license, onClose }) => {
   const {
@@ -10,6 +11,7 @@ const LicenseForm = ({ license, onClose }) => {
     softwareTable,
     addLicense,
     updateLicense,
+    loading,
   } = useAssets();
 
   const [formData, setFormData] = useState({
@@ -95,6 +97,14 @@ const LicenseForm = ({ license, onClose }) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <LoadingSpinner text="Loading form data..." />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">

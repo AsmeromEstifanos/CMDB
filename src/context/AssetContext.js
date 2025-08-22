@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useReducer, useEffect } from "react";
-import { generateId, formatDate } from "../utils/helpers";
+import { formatDate } from "../utils/helpers";
 import { useMsal } from "@azure/msal-react";
 import {
   getAssetsFromSharePoint,
   createAssetInSharePoint,
   updateAssetInSharePoint,
+  deleteAssetFromSharePoint,
   acquireToken,
   defaultScopes,
   getCategoriesFromSharePoint,
@@ -454,94 +455,9 @@ export const AssetProvider = ({ children }) => {
   }, [siteUrl, instance]);
 
   // Denormalize helpers for UI views
-  const buildAssetsView = () => {
-    const ventures = byId(state.venturesTable);
-    const depts = byId(state.departmentsTable);
-    const cats = byId(state.categoriesTable);
-    const stats = byId(state.statusesTable);
-    const suppliers = byId(state.suppliersTable);
-    const tags = byId(state.tagsTable);
-    const sw = byId(state.softwareTable);
-
-    const assetIdToTags = state.assetTags.reduce((acc, row) => {
-      (acc[row.assetId] = acc[row.assetId] || []).push(tags[row.tagId]?.name);
-      return acc;
-    }, {});
-    const assetIdToSoftware = state.assetSoftware.reduce((acc, row) => {
-      (acc[row.assetId] = acc[row.assetId] || []).push(
-        sw[row.softwareId]?.name
-      );
-      return acc;
-    }, {});
-    const assetIdToHistory = state.assetHistory.reduce((acc, h) => {
-      (acc[h.assetId] = acc[h.assetId] || []).push({
-        date: h.date,
-        action: h.action,
-        user: h.user,
-      });
-      return acc;
-    }, {});
-
-    return state.assetsCore.map((a) => ({
-      id: a.id,
-      name: a.name,
-      category: cats[a.categoryId]?.name || "",
-      status: stats[a.statusId]?.name || "",
-      venture: ventures[a.ventureId]?.name || "",
-      department: depts[a.departmentId]?.name || "",
-      owner: a.ownerName,
-      assignedToName: a.assignedToName,
-      userTitle: a.userTitle,
-      assignedDate: a.assignedDate,
-      location: a.location,
-      assetTag: a.assetTag,
-      serialNumber: a.serialNumber,
-      supplier: suppliers[a.supplierId]?.name || "",
-      cost: a.cost,
-      depreciationRate: a.depreciationRate,
-      acquiredDate: a.acquiredDate,
-      warrantyEndDate: a.warrantyEndDate,
-      hostname: a.hostname,
-      ipAddress: a.ipAddress,
-      operatingSystem: a.operatingSystem,
-      parentAssetId: a.parentAssetId,
-      tags: assetIdToTags[a.id] || [],
-      software: assetIdToSoftware[a.id] || [],
-      notes: a.notes,
-      history: assetIdToHistory[a.id] || [],
-    }));
-  };
-
-  const buildLicensesView = () => {
-    const ventures = byId(state.venturesTable);
-    const depts = byId(state.departmentsTable);
-    const suppliers = byId(state.suppliersTable);
-    const sw = byId(state.softwareTable);
-    const licenseIdToHistory = state.licenseHistory.reduce((acc, h) => {
-      (acc[h.licenseId] = acc[h.licenseId] || []).push({
-        date: h.date,
-        action: h.action,
-        user: h.user,
-      });
-      return acc;
-    }, {});
-
-    return state.licensesCore.map((l) => ({
-      id: l.id,
-      name: l.name,
-      software: l.softwareId ? sw[l.softwareId]?.name : undefined,
-      licenseNumber: l.licenseNumber,
-      renewalDate: l.renewalDate,
-      cost: l.cost,
-      quantity: l.quantity,
-      used: l.used,
-      venture: ventures[l.ventureId]?.name || "",
-      department: depts[l.departmentId]?.name || "",
-      supplier: suppliers[l.supplierId]?.name || "",
-      notes: l.notes,
-      history: licenseIdToHistory[l.id] || [],
-    }));
-  };
+  // Note: These functions are not currently used but kept for future reference
+  // const buildAssetsView = () => { ... };
+  // const buildLicensesView = () => { ... };
 
   // SharePoint integration (incremental start with Assets list)
   const loadAssetsFromSharePoint = async () => {
@@ -1768,8 +1684,8 @@ export const AssetProvider = ({ children }) => {
               departmentId:
                 updates.department &&
                 (await ensureLookupId("departmentsTable", updates.department)),
-              ownerName: updates.owner,
-              assignedToName: updates.assignedTo,
+              ownerName: updates.ownerName,
+              assignedToName: updates.assignedToName,
               userTitle: updates.userTitle,
               assignedDate: updates.assignedDate,
               location: updates.location,
@@ -1823,7 +1739,7 @@ export const AssetProvider = ({ children }) => {
       }),
       ...(updates.ownerName !== undefined && { ownerName: updates.ownerName }),
       ...(updates.assignedToName !== undefined && {
-        assignedToName: updates.assignedTo,
+        assignedToName: updates.assignedToName,
       }),
       ...(updates.userTitle !== undefined && { userTitle: updates.userTitle }),
       ...(updates.assignedDate && { assignedDate: updates.assignedDate }),
@@ -1858,8 +1774,54 @@ export const AssetProvider = ({ children }) => {
     return updated;
   };
 
-  const deleteAsset = (assetId) => {
-    dispatch({ type: "DELETE_ASSET", payload: assetId });
+  const deleteAsset = async (assetId) => {
+    if (!assetId) {
+      console.warn(
+        "[SharePoint] Attempted to delete asset with invalid ID:",
+        assetId
+      );
+      return false;
+    }
+
+    try {
+      console.log(`[SharePoint] Attempting to delete asset ${assetId}...`);
+
+      // Try to delete from SharePoint first if available
+      if (siteUrl) {
+        try {
+          console.log(
+            "[SharePoint] SharePoint configured, attempting remote deletion..."
+          );
+          // Ensure we have write permissions
+          await acquireToken(instance, ["Sites.ReadWrite.All"]);
+          await deleteAssetFromSharePoint(instance, siteUrl, assetId);
+          console.log(
+            `[SharePoint] Asset ${assetId} deleted from SharePoint successfully`
+          );
+        } catch (sharePointError) {
+          console.warn(
+            "[SharePoint] Failed to delete asset from SharePoint:",
+            sharePointError
+          );
+          // Continue with local deletion even if SharePoint fails
+        }
+      } else {
+        console.log(
+          "[SharePoint] No SharePoint URL configured, deleting locally only"
+        );
+      }
+
+      // Always delete locally
+      console.log(`[SharePoint] Deleting asset ${assetId} from local state...`);
+      dispatch({ type: "DELETE_ASSET", payload: assetId });
+      console.log(
+        `[SharePoint] Asset ${assetId} deleted from local state successfully`
+      );
+      return true;
+    } catch (error) {
+      console.error("[SharePoint] Failed to delete asset:", error);
+      return false;
+    }
   };
 
   const addLicense = async (licenseData) => {
@@ -2095,11 +2057,12 @@ export const AssetProvider = ({ children }) => {
     const lower = query.toLowerCase();
     return getAssetsView().filter(
       (asset) =>
-        asset.name.toLowerCase().includes(lower) ||
-        asset.assignedTo.toLowerCase().includes(lower) ||
-        asset.venture.toLowerCase().includes(lower) ||
-        asset.department.toLowerCase().includes(lower) ||
-        asset.assetTag.toLowerCase().includes(lower)
+        (asset.name && asset.name.toLowerCase().includes(lower)) ||
+        (asset.assignedToName &&
+          asset.assignedToName.toLowerCase().includes(lower)) ||
+        (asset.venture && asset.venture.toLowerCase().includes(lower)) ||
+        (asset.department && asset.department.toLowerCase().includes(lower)) ||
+        (asset.assetTag && asset.assetTag.toLowerCase().includes(lower))
     );
   };
 

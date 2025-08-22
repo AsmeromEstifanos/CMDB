@@ -927,3 +927,24 @@ export async function deleteLicenseFromSharePoint(
     throw error;
   }
 }
+
+export async function deleteAssetFromSharePoint(
+  instance,
+  siteUrl,
+  assetId,
+  listName = "Assets"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items/${assetId}`;
+    await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (error) {
+    console.error("[SharePoint] Failed to delete asset:", error);
+    throw error;
+  }
+}

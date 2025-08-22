@@ -9,9 +9,9 @@ import {
   Trash2,
   Eye,
   HardDrive,
-  FileJson,
   AlertTriangle,
   Upload,
+  Loader,
 } from "lucide-react";
 import {
   formatCurrency,
@@ -20,9 +20,11 @@ import {
   getCategoryIcon,
   exportToCSV,
   exportToJSON,
+  importFromFile,
 } from "../utils/helpers";
 import AssetForm from "./AssetForm";
 import AssetDetails from "./AssetDetails";
+import LoadingSpinner from "./LoadingSpinner";
 
 const AssetManagement = () => {
   const {
@@ -34,6 +36,7 @@ const AssetManagement = () => {
     searchAssets,
     loading,
     error,
+    addAsset,
   } = useAssets();
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -45,8 +48,12 @@ const AssetManagement = () => {
   const [viewingAsset, setViewingAsset] = useState(null);
   const [sortField, setSortField] = useState("name");
   const [sortDirection, setSortDirection] = useState("asc");
+  const [deletingAssets, setDeletingAssets] = useState(new Set());
+  const [isImporting, setIsImporting] = useState(false);
 
   const filteredAssets = useMemo(() => {
+    if (loading) return [];
+
     let filtered = assets;
     if (searchTerm) filtered = searchAssets(searchTerm);
     if (selectedVenture)
@@ -59,6 +66,11 @@ const AssetManagement = () => {
     filtered.sort((a, b) => {
       let aValue = a[sortField];
       let bValue = b[sortField];
+
+      // Handle undefined/null values
+      if (aValue === undefined || aValue === null) aValue = "";
+      if (bValue === undefined || bValue === null) bValue = "";
+
       if (typeof aValue === "string") {
         aValue = aValue.toLowerCase();
         bValue = bValue.toLowerCase();
@@ -82,6 +94,7 @@ const AssetManagement = () => {
     sortField,
     sortDirection,
     searchAssets,
+    loading,
   ]);
 
   const handleSort = (field) => {
@@ -100,15 +113,146 @@ const AssetManagement = () => {
 
   const handleView = (asset) => setViewingAsset(asset);
 
-  const handleDelete = (assetId) => {
+  const handleDelete = async (assetId) => {
     if (window.confirm("Are you sure you want to delete this asset?")) {
-      deleteAsset(assetId);
+      try {
+        // Set loading state for this specific asset
+        setDeletingAssets((prev) => new Set(prev).add(assetId));
+
+        const success = await deleteAsset(assetId);
+        if (success) {
+          console.log(`Asset ${assetId} deleted successfully`);
+        } else {
+          console.error(`Failed to delete asset ${assetId}`);
+        }
+      } catch (error) {
+        console.error("Error deleting asset:", error);
+      } finally {
+        // Clear loading state for this asset
+        setDeletingAssets((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(assetId);
+          return newSet;
+        });
+      }
     }
   };
 
   const handleExport = (format) => {
     if (format === "csv") exportToCSV(filteredAssets, "svh-assets");
     else exportToJSON(filteredAssets, "svh-assets");
+  };
+
+  const handleImport = async (file) => {
+    setIsImporting(true);
+    try {
+      // Determine file type from extension
+      const fileExtension = file.name.split(".").pop().toLowerCase();
+      console.log(`[Import] Processing ${fileExtension} file: ${file.name}`);
+
+      const importedAssets = await importFromFile(file, fileExtension);
+      console.log(
+        `[Import] Parsed ${importedAssets?.length || 0} assets:`,
+        importedAssets
+      );
+
+      if (importedAssets && importedAssets.length > 0) {
+        console.log(`${importedAssets.length} assets imported successfully.`);
+
+        // Process each imported asset
+        for (const assetData of importedAssets) {
+          try {
+            console.log(`[Import] Processing asset:`, assetData);
+
+            // Create a normalized asset object
+            const normalizedAsset = {
+              name:
+                assetData.name || assetData.Name || assetData.assetName || "",
+              category:
+                assetData.category ||
+                assetData.Category ||
+                assetData.assetCategory ||
+                "Other",
+              status:
+                assetData.status ||
+                assetData.Status ||
+                assetData.assetStatus ||
+                "In Stock",
+              venture:
+                assetData.venture ||
+                assetData.Venture ||
+                assetData.assetVenture ||
+                "Default",
+              assignedToName:
+                assetData.assignedToName ||
+                assetData.AssignedToName ||
+                assetData.assignedTo ||
+                "",
+              userTitle:
+                assetData.userTitle ||
+                assetData.UserTitle ||
+                assetData.title ||
+                "",
+              cost:
+                parseFloat(
+                  assetData.cost || assetData.Cost || assetData.assetCost || 0
+                ) || 0,
+              assignedDate:
+                assetData.assignedDate ||
+                assetData.AssignedDate ||
+                assetData.date ||
+                new Date().toISOString().split("T")[0],
+              serialNumber:
+                assetData.serialNumber ||
+                assetData.SerialNumber ||
+                assetData.serial ||
+                "",
+              assetTag:
+                assetData.assetTag || assetData.AssetTag || assetData.tag || "",
+              notes:
+                assetData.notes ||
+                assetData.Notes ||
+                assetData.description ||
+                "",
+              // Add other fields as needed
+            };
+
+            console.log(`[Import] Normalized asset:`, normalizedAsset);
+
+            // Add to context using the addAsset function
+            await addAsset(normalizedAsset);
+            console.log(
+              `[Import] Asset added successfully:`,
+              normalizedAsset.name
+            );
+          } catch (assetError) {
+            console.error(
+              "Error processing imported asset:",
+              assetError,
+              assetData
+            );
+          }
+        }
+
+        // Show success message
+        alert(`Successfully imported ${importedAssets.length} assets!`);
+      } else {
+        console.warn("No assets imported from the file.");
+        alert("No assets found in the imported file.");
+      }
+    } catch (error) {
+      console.error("Error importing assets:", error);
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      alert(
+        `Error importing assets: ${error.message}. Please check the file format.`
+      );
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const clearFilters = () => {
@@ -120,6 +264,10 @@ const AssetManagement = () => {
 
   const getSortIcon = (field) =>
     sortField === field ? (sortDirection === "asc" ? "↑" : "↓") : null;
+
+  if (loading) {
+    return <LoadingSpinner text="Loading assets..." />;
+  }
 
   return (
     <div className="space-y-6">
@@ -156,18 +304,46 @@ const AssetManagement = () => {
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <input
+            type="file"
+            id="import-file"
+            accept=".csv,.json,.txt"
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (file) {
+                // Determine file type from extension
+                const fileExtension = file.name.split(".").pop().toLowerCase();
+                if (fileExtension === "csv" || fileExtension === "json") {
+                  handleImport(file);
+                } else {
+                  alert("Please select a CSV or JSON file.");
+                }
+              }
+              // Reset the input so the same file can be selected again
+              e.target.value = "";
+            }}
+            className="hidden"
+          />
           <button
             className="btn btn-secondary"
-            onClick={() => setShowForm(true)}
+            onClick={() => document.getElementById("import-file").click()}
+            disabled={isImporting}
+            title="Import assets from CSV or JSON file"
           >
-            <Upload size={16} />
-            <span className="ml-2">Import</span>
+            {isImporting ? (
+              <Loader size={16} className="animate-spin" />
+            ) : (
+              <>
+                <Download size={16} />
+                <span className="ml-2">Import</span>
+              </>
+            )}
           </button>
           <button
             className="btn btn-secondary"
             onClick={() => handleExport("csv")}
           >
-            <Download size={16} />
+            <Upload size={16} />
             <span className="ml-2">Export CSV</span>
           </button>
           <button className="btn btn-primary" onClick={() => setShowForm(true)}>
@@ -235,173 +411,182 @@ const AssetManagement = () => {
         </div>
       </div>
 
-      <div className="text-slate-500 text-sm">
-        {loading ? (
-          <span>Loading from SharePoint...</span>
-        ) : (
-          <>
+      {!loading && (
+        <>
+          <div className="text-slate-500 text-sm">
             Showing {filteredAssets.length} of {assets.length} assets
-          </>
-        )}
-      </div>
+          </div>
 
-      <div className="card overflow-x-auto">
-        <table className="table min-w-[800px]">
-          <thead>
-            <tr>
-              <th className="cursor-pointer" onClick={() => handleSort("name")}>
-                Asset Name {getSortIcon("name")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("category")}
-              >
-                Category {getSortIcon("category")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("status")}
-              >
-                Status {getSortIcon("status")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("venture")}
-              >
-                Venture {getSortIcon("venture")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("assignedToName")}
-              >
-                Assigned To {getSortIcon("assignedToName")}
-              </th>
-              <th className="cursor-pointer" onClick={() => handleSort("cost")}>
-                Cost {getSortIcon("cost")}
-              </th>
-              <th
-                className="cursor-pointer"
-                onClick={() => handleSort("assignedDate")}
-              >
-                Assigned Date {getSortIcon("assignedDate")}
-              </th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredAssets.length > 0 ? (
-              filteredAssets.map((asset) => (
-                <tr key={asset.id} className="">
-                  <td>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl w-6 text-center">
-                        {getCategoryIcon(asset.category)}
-                      </span>
-                      <div className="leading-tight">
-                        <div className="font-medium text-slate-800 flex items-baseline gap-1">
-                          <span>{asset.name}</span>
-                          {asset.assetTag && (
-                            <span className="text-xs text-slate-500 font-mono">
-                              ({asset.assetTag})
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-500 font-mono">
-                          {asset.serialNumber || ""}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="inline-block text-xs font-medium px-2 py-1 rounded bg-indigo-100 text-indigo-700">
-                      {asset.category}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className={`inline-block text-xs font-semibold px-2 py-1 rounded uppercase tracking-wide ${
-                        getStatusColor(asset.status) === "success"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : getStatusColor(asset.status) === "warning"
-                          ? "bg-amber-100 text-amber-800"
-                          : getStatusColor(asset.status) === "danger"
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-blue-100 text-blue-800"
-                      }`}
-                    >
-                      {asset.status}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="inline-block text-xs font-medium px-2 py-1 rounded bg-sky-100 text-sky-800">
-                      {asset.venture}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="leading-tight">
-                      <div className="text-slate-800">
-                        {asset.assignedToName}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {asset.userTitle}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="font-mono text-emerald-700 font-semibold">
-                    {formatCurrency(asset.cost)}
-                  </td>
-                  <td className="text-slate-600">
-                    {formatDisplayDate(asset.assignedDate)}
-                  </td>
-                  <td>
-                    <div className="flex gap-2">
-                      <button
-                        className="btn btn-sm btn-secondary"
-                        title="View Details"
-                        onClick={() => handleView(asset)}
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        title="Edit Asset"
-                        onClick={() => handleEdit(asset)}
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        title="Delete Asset"
-                        onClick={() => handleDelete(asset.id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+          <div className="card overflow-x-auto">
+            <table className="table min-w-[800px]">
+              <thead>
+                <tr>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("name")}
+                  >
+                    Asset Name {getSortIcon("name")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("category")}
+                  >
+                    Category {getSortIcon("category")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("status")}
+                  >
+                    Status {getSortIcon("status")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("venture")}
+                  >
+                    Venture {getSortIcon("venture")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("assignedToName")}
+                  >
+                    Assigned To {getSortIcon("assignedToName")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("cost")}
+                  >
+                    Cost {getSortIcon("cost")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
+                    onClick={() => handleSort("assignedDate")}
+                  >
+                    Assigned Date {getSortIcon("assignedDate")}
+                  </th>
+                  <th>Actions</th>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="8" className="px-3 py-8">
-                  <div className="text-center text-slate-500">
-                    <HardDrive
-                      size={48}
-                      className="mx-auto mb-2 text-slate-300"
-                    />
-                    <p>No assets found matching your criteria</p>
-                    <button
-                      className="btn btn-primary mt-3"
-                      onClick={() => setShowForm(true)}
-                    >
-                      Add Your First Asset
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {filteredAssets.length > 0 ? (
+                  filteredAssets.map((asset) => (
+                    <tr key={asset.id} className="">
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl w-6 text-center">
+                            {getCategoryIcon(asset.category)}
+                          </span>
+                          <div className="leading-tight">
+                            <div className="font-medium text-slate-800 flex items-baseline gap-1">
+                              <span>{asset.name}</span>
+                              {asset.assetTag && (
+                                <span className="text-xs text-slate-500 font-mono">
+                                  ({asset.assetTag})
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-500 font-mono">
+                              {asset.serialNumber || ""}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="inline-block text-xs font-medium px-2 py-1 rounded bg-indigo-100 text-indigo-700">
+                          {asset.category}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`inline-block text-xs font-semibold px-2 py-1 rounded uppercase tracking-wide ${
+                            getStatusColor(asset.status) === "success"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : getStatusColor(asset.status) === "warning"
+                              ? "bg-amber-100 text-amber-800"
+                              : getStatusColor(asset.status) === "danger"
+                              ? "bg-rose-100 text-rose-800"
+                              : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {asset.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="inline-block text-xs font-medium px-2 py-1 rounded bg-sky-100 text-sky-800">
+                          {asset.venture}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="leading-tight">
+                          <div className="text-slate-800">
+                            {asset.assignedToName}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {asset.userTitle}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="font-mono text-emerald-700 font-semibold">
+                        {formatCurrency(asset.cost)}
+                      </td>
+                      <td className="text-slate-600">
+                        {formatDisplayDate(asset.assignedDate)}
+                      </td>
+                      <td>
+                        <div className="flex gap-2">
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            title="View Details"
+                            onClick={() => handleView(asset)}
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            className="btn btn-sm btn-primary"
+                            title="Edit Asset"
+                            onClick={() => handleEdit(asset)}
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            className="btn btn-sm btn-danger"
+                            title="Delete Asset"
+                            onClick={() => handleDelete(asset.id)}
+                            disabled={deletingAssets.has(asset.id)}
+                          >
+                            {deletingAssets.has(asset.id) ? (
+                              <Loader size={16} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={16} />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="8" className="px-3 py-8">
+                      <div className="text-center text-slate-500">
+                        <HardDrive
+                          size={48}
+                          className="mx-auto mb-2 text-slate-300"
+                        />
+                        <p>No assets found matching your criteria</p>
+                        <button
+                          className="btn btn-primary mt-3"
+                          onClick={() => setShowForm(true)}
+                        >
+                          Add Your First Asset
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {showForm && (
         <AssetForm

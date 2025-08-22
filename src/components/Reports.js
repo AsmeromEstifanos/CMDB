@@ -2,7 +2,6 @@ import React, { useState, useMemo } from "react";
 import { useAssets } from "../context/AssetContext";
 import {
   Download,
-  BarChart3,
   PieChart,
   TrendingUp,
   Calendar,
@@ -18,6 +17,7 @@ import {
   daysUntilRenewal,
 } from "../utils/helpers";
 import { exportToCSV, exportToJSON } from "../utils/helpers";
+import LoadingSpinner from "./LoadingSpinner";
 
 const Reports = () => {
   const {
@@ -27,6 +27,7 @@ const Reports = () => {
     departments,
     categories,
     statuses,
+    loading,
     getAssetsByVenture,
     getAssetsByCategory,
     getExpiringLicenses,
@@ -39,9 +40,43 @@ const Reports = () => {
   const [reportType, setReportType] = useState("overview");
 
   const stats = useMemo(() => {
-    const totalAssets = assets.length;
-    const totalLicenses = licenses.length;
-    const totalAssetValue = assets.reduce(
+    if (loading) {
+      return {
+        totalAssets: 0,
+        totalLicenses: 0,
+        totalAssetValue: 0,
+        expiringLicenses: [],
+        ventureStats: [],
+        categoryStats: [],
+        statusStats: [],
+        departmentStats: [],
+        monthlyCosts: {},
+      };
+    }
+
+    // Filter assets and licenses based on selected filters
+    const filteredAssets = assets.filter((asset) => {
+      const ventureMatch =
+        selectedVenture === "All Ventures" || asset.venture === selectedVenture;
+      const departmentMatch =
+        selectedDepartment === "All Departments" ||
+        asset.department === selectedDepartment;
+      return ventureMatch && departmentMatch;
+    });
+
+    const filteredLicenses = licenses.filter((license) => {
+      const ventureMatch =
+        selectedVenture === "All Ventures" ||
+        license.venture === selectedVenture;
+      const departmentMatch =
+        selectedDepartment === "All Departments" ||
+        license.department === selectedDepartment;
+      return ventureMatch && departmentMatch;
+    });
+
+    const totalAssets = filteredAssets.length;
+    const totalLicenses = filteredLicenses.length;
+    const totalAssetValue = filteredAssets.reduce(
       (sum, asset) => sum + (asset.cost || 0),
       0
     );
@@ -49,44 +84,71 @@ const Reports = () => {
 
     const ventureStats = ventures.map((venture) => ({
       name: venture,
-      assetCount: getAssetsByVenture(venture).length,
-      assetValue: getAssetsByVenture(venture).reduce(
-        (sum, asset) => sum + (asset.cost || 0),
-        0
-      ),
-      licenseCount: licenses.filter((license) => license.venture === venture)
-        .length,
+      assetCount: getAssetsByVenture(venture).filter((asset) => {
+        const departmentMatch =
+          selectedDepartment === "All Departments" ||
+          asset.department === selectedDepartment;
+        return departmentMatch;
+      }).length,
+      assetValue: getAssetsByVenture(venture)
+        .filter((asset) => {
+          const departmentMatch =
+            selectedDepartment === "All Departments" ||
+            asset.department === selectedDepartment;
+          return departmentMatch;
+        })
+        .reduce((sum, asset) => sum + (asset.cost || 0), 0),
+      licenseCount: filteredLicenses.filter(
+        (license) => license.venture === venture
+      ).length,
     }));
 
     const categoryStats = categories
       .map((category) => ({
         name: category,
-        count: getAssetsByCategory(category).length,
-        value: getAssetsByCategory(category).reduce(
-          (sum, asset) => sum + (asset.cost || 0),
-          0
-        ),
+        count: getAssetsByCategory(category).filter((asset) => {
+          const ventureMatch =
+            selectedVenture === "All Ventures" ||
+            asset.venture === selectedVenture;
+          const departmentMatch =
+            selectedDepartment === "All Departments" ||
+            asset.department === selectedDepartment;
+          return ventureMatch && departmentMatch;
+        }).length,
+        value: getAssetsByCategory(category)
+          .filter((asset) => {
+            const ventureMatch =
+              selectedVenture === "All Ventures" ||
+              asset.venture === selectedVenture;
+            const departmentMatch =
+              selectedDepartment === "All Departments" ||
+              asset.department === selectedDepartment;
+            return ventureMatch && departmentMatch;
+          })
+          .reduce((sum, asset) => sum + (asset.cost || 0), 0),
       }))
       .filter((stat) => stat.count > 0);
 
     const statusStats = statuses
       .map((status) => ({
         name: status,
-        count: assets.filter((asset) => asset.status === status).length,
+        count: filteredAssets.filter((asset) => asset.status === status).length,
       }))
       .filter((stat) => stat.count > 0);
 
     const departmentStats = departments
       .map((dept) => ({
         name: dept,
-        assetCount: assets.filter((asset) => asset.department === dept).length,
-        licenseCount: licenses.filter((license) => license.department === dept)
+        assetCount: filteredAssets.filter((asset) => asset.department === dept)
           .length,
+        licenseCount: filteredLicenses.filter(
+          (license) => license.department === dept
+        ).length,
       }))
       .filter((stat) => stat.assetCount > 0 || stat.licenseCount > 0);
 
     const monthlyCosts = {};
-    assets.forEach((asset) => {
+    filteredAssets.forEach((asset) => {
       if (asset.acquiredDate) {
         const month = asset.acquiredDate.substring(0, 7);
         monthlyCosts[month] = (monthlyCosts[month] || 0) + (asset.cost || 0);
@@ -112,9 +174,12 @@ const Reports = () => {
     categories,
     statuses,
     selectedPeriod,
+    selectedVenture,
+    selectedDepartment,
     getAssetsByVenture,
     getAssetsByCategory,
     getExpiringLicenses,
+    loading,
   ]);
 
   const generateReport = () => {
@@ -159,6 +224,10 @@ const Reports = () => {
     return colors[index % colors.length];
   };
 
+  if (loading) {
+    return <LoadingSpinner text="Loading reports..." />;
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -170,9 +239,18 @@ const Reports = () => {
 
       <div className="card p-6">
         <div className="border-b border-slate-200 pb-4 mb-4">
-          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-            <Filter size={18} /> Report Filters
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <Filter size={18} /> Report Filters
+            </h3>
+            {(selectedVenture !== "All Ventures" ||
+              selectedDepartment !== "All Departments" ||
+              selectedPeriod !== "30") && (
+              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                Filters Active
+              </span>
+            )}
+          </div>
         </div>
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           <div>
@@ -231,7 +309,18 @@ const Reports = () => {
             </select>
           </div>
         </div>
-        <div className="flex items-center justify-end mt-4">
+        <div className="flex items-center justify-between mt-4">
+          <button
+            onClick={() => {
+              setSelectedVenture("All Ventures");
+              setSelectedDepartment("All Departments");
+              setSelectedPeriod("30");
+              setReportType("overview");
+            }}
+            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors"
+          >
+            Clear Filters
+          </button>
           <button className="btn btn-primary" onClick={generateReport}>
             <Download size={16} />
             <span className="ml-2">Generate Report</span>
