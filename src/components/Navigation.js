@@ -91,7 +91,10 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
                 className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Refresh Data"
               >
-                <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+                <RefreshCw
+                  size={18}
+                  className={loading ? "animate-spin" : ""}
+                />
               </button>
             )}
             <button
@@ -113,11 +116,12 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
                   : "Collapse sidebar"
               }
             >
-                          {isMobile ? (
+              {isMobile ? (
                 isMobileMenuOpen ? (
                   <X size={20} />
                 ) : (
-                  <Menu size={20} />
+                  <></>
+                  // <Menu size={20} />
                 )
               ) : isNavCollapsed ? (
                 <Menu size={20} />
