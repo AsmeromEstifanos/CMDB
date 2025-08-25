@@ -164,17 +164,12 @@ export const importFromFile = (file, type = "json") => {
 
     reader.onload = (e) => {
       try {
-        console.log(
-          `[Import] Processing ${type} file with content length: ${e.target.result.length}`
-        );
-
         if (type === "json") {
           const data = JSON.parse(e.target.result);
-          console.log(`[Import] JSON parsed successfully:`, data);
+
           resolve(data);
         } else if (type === "csv") {
           const csv = e.target.result;
-          console.log(`[Import] CSV content preview:`, csv.substring(0, 200));
 
           const lines = csv.split("\n").filter((line) => line.trim()); // Remove empty lines
           if (lines.length < 2) {
@@ -186,7 +181,6 @@ export const importFromFile = (file, type = "json") => {
           const headers = lines[0]
             .split(",")
             .map((h) => h.trim().replace(/"/g, ""));
-          console.log(`[Import] CSV headers:`, headers);
 
           const data = lines
             .slice(1)
@@ -212,7 +206,6 @@ export const importFromFile = (file, type = "json") => {
             })
             .filter(Boolean); // Remove any null entries
 
-          console.log(`[Import] CSV parsed successfully:`, data);
           resolve(data);
         } else {
           throw new Error(

@@ -38,6 +38,19 @@ import {
   createLicenseInSharePoint,
   updateLicenseInSharePoint,
   deleteLicenseFromSharePoint,
+  createAssetHistoryInSharePoint,
+  createLicenseHistoryInSharePoint,
+  createAssetTagInSharePoint,
+  deleteAssetTagFromSharePoint,
+  createAssetSoftwareInSharePoint,
+  deleteAssetSoftwareFromSharePoint,
+  createAssetRelationInSharePoint,
+  deleteAssetRelationFromSharePoint,
+  getAssetHistoryFromSharePoint,
+  getLicenseHistoryFromSharePoint,
+  getAssetTagsFromSharePoint,
+  getAssetSoftwareFromSharePoint,
+  getAssetRelationsFromSharePoint,
 } from "../services/sharepoint";
 
 const AssetContext = createContext();
@@ -160,6 +173,18 @@ const assetReducer = (state, action) => {
       };
     }
 
+    case "ADD_ASSET_HISTORY":
+      return {
+        ...state,
+        assetHistory: [...state.assetHistory, action.payload],
+      };
+
+    case "ADD_LICENSE_HISTORY":
+      return {
+        ...state,
+        licenseHistory: [...state.licenseHistory, action.payload],
+      };
+
     // Data table initializations
     case "INIT_TABLES":
       return { ...state, ...action.payload };
@@ -171,16 +196,145 @@ const assetReducer = (state, action) => {
 
 export const AssetProvider = ({ children }) => {
   const [state, dispatch] = useReducer(assetReducer, initialState);
-  const { instance } = useMsal();
+  const { instance, accounts } = useMsal();
   const siteUrl = process.env.REACT_APP_SHAREPOINT_SITE_URL;
 
-  // Helper function to create lookup maps
-  const byId = (list) => {
-    return list.reduce((acc, item) => {
-      acc[item.id] = item;
-      return acc;
-    }, {});
-  };
+  // Hoisted loader to be callable from multiple effects and helpers
+  async function loadData(retryCount = 0) {
+    if (siteUrl) {
+      try {
+        // Wait a bit for MSAL to fully initialize (exponential backoff)
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+
+        // More robust MSAL readiness check
+        const isMsalReady =
+          instance &&
+          typeof instance.getActiveAccount === "function" &&
+          typeof instance.acquireTokenSilent === "function" &&
+          typeof instance.acquireTokenPopup === "function";
+
+        if (!isMsalReady) {
+          if (retryCount < 3) {
+            console.warn(
+              `[SharePoint] MSAL not ready (attempt ${
+                retryCount + 1
+              }/3), retrying...`
+            );
+            setTimeout(() => loadData(retryCount + 1), delay);
+            return;
+          } else {
+            console.warn(
+              "[SharePoint] MSAL not ready after retries, setting error state"
+            );
+            dispatch({
+              type: "SET_ERROR",
+              payload: "MSAL initialization failed",
+            });
+            dispatch({ type: "SET_LOADING", payload: false });
+            return;
+          }
+        }
+
+        // Additional delay to allow MSAL to populate account info
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Check if user is authenticated using multiple MSAL methods
+        const activeAccount = instance.getActiveAccount();
+        const allAccounts = instance.getAllAccounts();
+
+        // Use any available account (active or first available)
+        const account =
+          activeAccount || (allAccounts.length > 0 ? allAccounts[0] : null);
+
+        if (!account) {
+          dispatch({
+            type: "SET_ERROR",
+            payload: "No authenticated user found",
+          });
+          dispatch({ type: "SET_LOADING", payload: false });
+          return;
+        }
+
+        // Additional delay to ensure authentication state is stable
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Test token acquisition before attempting SharePoint loading
+        try {
+          await acquireToken(instance, defaultScopes());
+        } catch (tokenError) {
+          console.warn("[SharePoint] Token acquisition failed:", tokenError);
+          dispatch({
+            type: "SET_ERROR",
+            payload: "Token acquisition failed",
+          });
+          dispatch({ type: "SET_LOADING", payload: false });
+          return;
+        }
+
+        // Only proceed with SharePoint if token acquisition was successful
+        try {
+          // Clear any previous errors
+          dispatch({ type: "SET_ERROR", payload: null });
+
+          await loadAssetsFromSharePoint();
+          await loadCategoriesFromSharePoint();
+          await loadVenturesFromSharePoint();
+          await loadDepartmentsFromSharePoint();
+          await loadStatusesFromSharePoint();
+          await loadSuppliersFromSharePoint();
+          await loadTagsFromSharePoint();
+          await loadSoftwareCatalogFromSharePoint();
+          await loadLicensesFromSharePointContext(); // Load licenses from SharePoint
+
+          // Load relationship and history data
+          await loadAssetHistoryFromSharePoint();
+          await loadLicenseHistoryFromSharePoint();
+          await loadAssetTagsFromSharePoint();
+          await loadAssetSoftwareFromSharePoint();
+          await loadAssetRelationsFromSharePoint();
+
+          // Set loading to false after successful data load
+          dispatch({ type: "SET_LOADING", payload: false });
+        } catch (sharePointError) {
+          console.warn(
+            "[SharePoint] SharePoint loading failed:",
+            sharePointError
+          );
+          dispatch({
+            type: "SET_ERROR",
+            payload: "Failed to load data from SharePoint",
+          });
+          dispatch({ type: "SET_LOADING", payload: false });
+        }
+      } catch (error) {
+        if (
+          error.message.includes("MSAL not fully initialized") &&
+          retryCount < 3
+        ) {
+          console.warn(
+            `[SharePoint] MSAL initialization error (attempt ${
+              retryCount + 1
+            }/3), retrying...`
+          );
+          setTimeout(() => loadData(retryCount + 1), 1000);
+          return;
+        }
+
+        console.warn("[SharePoint] Auto-load failed:", error);
+        dispatch({ type: "SET_ERROR", payload: "Data loading failed" });
+        dispatch({ type: "SET_LOADING", payload: false });
+      }
+    } else {
+      dispatch({
+        type: "SET_ERROR",
+        payload: "SharePoint URL not configured",
+      });
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  }
 
   // Helper function to ensure lookup IDs exist
   const ensureLookupId = async (tableKey, name) => {
@@ -193,10 +347,6 @@ export const AssetProvider = ({ children }) => {
     // If we have SharePoint access, try to create the lookup item there
     if (siteUrl) {
       try {
-        console.log(
-          `[SharePoint] Creating new ${tableKey.replace("Table", "")}: ${name}`
-        );
-
         let newItem;
         switch (tableKey) {
           case "categoriesTable":
@@ -265,11 +415,6 @@ export const AssetProvider = ({ children }) => {
           });
         }
 
-        console.log(
-          `[SharePoint] ${tableKey.replace("Table", "")} created with ID: ${
-            newItem.id
-          }`
-        );
         return newItem.id;
       } catch (error) {
         console.warn(
@@ -290,174 +435,153 @@ export const AssetProvider = ({ children }) => {
     return newId;
   };
 
-  // Load data on mount - only load SharePoint data
+  // Load data on mount and when authentication state changes
   useEffect(() => {
-    console.log("[SharePoint] Starting data load process...");
-
-    const loadData = async (retryCount = 0) => {
-      if (siteUrl) {
-        try {
-          // Wait a bit for MSAL to fully initialize (exponential backoff)
-          const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-
-          // More robust MSAL readiness check
-          const isMsalReady =
-            instance &&
-            typeof instance.getActiveAccount === "function" &&
-            typeof instance.acquireTokenSilent === "function" &&
-            typeof instance.acquireTokenPopup === "function";
-
-          if (!isMsalReady) {
-            if (retryCount < 3) {
-              console.warn(
-                `[SharePoint] MSAL not ready (attempt ${
-                  retryCount + 1
-                }/3), retrying...`
-              );
-              setTimeout(() => loadData(retryCount + 1), delay);
-              return;
-            } else {
-              console.warn(
-                "[SharePoint] MSAL not ready after retries, setting error state"
-              );
-              dispatch({
-                type: "SET_ERROR",
-                payload: "MSAL initialization failed",
-              });
-              dispatch({ type: "SET_LOADING", payload: false });
-              return;
-            }
-          }
-
-          // Additional delay to allow MSAL to populate account info
-          console.log("[SharePoint] MSAL ready, waiting for account info...");
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // Check if user is authenticated using multiple MSAL methods
-          const activeAccount = instance.getActiveAccount();
-          const allAccounts = instance.getAllAccounts();
-          console.log("[SharePoint] MSAL instance:", instance);
-          console.log("[SharePoint] Active account:", activeAccount);
-          console.log("[SharePoint] All accounts:", allAccounts);
-          console.log("[SharePoint] Account count:", allAccounts.length);
-
-          // Use any available account (active or first available)
-          const account =
-            activeAccount || (allAccounts.length > 0 ? allAccounts[0] : null);
-
-          console.log(
-            "[SharePoint] Selected account:",
-            account
-              ? {
-                  username: account.username,
-                  name: account.name,
-                  homeAccountId: account.homeAccountId,
-                }
-              : "No account"
-          );
-
-          if (!account) {
-            console.log(
-              "[SharePoint] No authenticated user, setting error state"
-            );
-            dispatch({
-              type: "SET_ERROR",
-              payload: "No authenticated user found",
-            });
-            dispatch({ type: "SET_LOADING", payload: false });
-            return;
-          }
-
-          // Additional delay to ensure authentication state is stable
-          console.log(
-            "[SharePoint] Waiting for authentication state to stabilize..."
-          );
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-
-          // Test token acquisition before attempting SharePoint loading
-          try {
-            console.log("[SharePoint] Testing token acquisition...");
-            await acquireToken(instance, defaultScopes());
-            console.log(
-              "[SharePoint] Token acquisition successful, proceeding with SharePoint..."
-            );
-          } catch (tokenError) {
-            console.warn("[SharePoint] Token acquisition failed:", tokenError);
-            dispatch({
-              type: "SET_ERROR",
-              payload: "Token acquisition failed",
-            });
-            dispatch({ type: "SET_LOADING", payload: false });
-            return;
-          }
-
-          // Only proceed with SharePoint if token acquisition was successful
-          try {
-            console.log(
-              "[SharePoint] User authenticated, auto-loading data from SharePoint..."
-            );
-            await loadAssetsFromSharePoint();
-            await loadCategoriesFromSharePoint();
-            await loadVenturesFromSharePoint();
-            await loadDepartmentsFromSharePoint();
-            await loadStatusesFromSharePoint();
-            await loadSuppliersFromSharePoint();
-            await loadTagsFromSharePoint();
-            await loadSoftwareCatalogFromSharePoint();
-            await loadLicensesFromSharePointContext(); // Load licenses from SharePoint
-
-            // Set loading to false after successful data load
-            dispatch({ type: "SET_LOADING", payload: false });
-          } catch (sharePointError) {
-            console.warn(
-              "[SharePoint] SharePoint loading failed:",
-              sharePointError
-            );
-            dispatch({
-              type: "SET_ERROR",
-              payload: "Failed to load data from SharePoint",
-            });
-            dispatch({ type: "SET_LOADING", payload: false });
-          }
-        } catch (error) {
-          if (
-            error.message.includes("MSAL not fully initialized") &&
-            retryCount < 3
-          ) {
-            console.warn(
-              `[SharePoint] MSAL initialization error (attempt ${
-                retryCount + 1
-              }/3), retrying...`
-            );
-            setTimeout(() => loadData(retryCount + 1), 1000);
-            return;
-          }
-
-          console.warn("[SharePoint] Auto-load failed:", error);
-          dispatch({ type: "SET_ERROR", payload: "Data loading failed" });
-          dispatch({ type: "SET_LOADING", payload: false });
-        }
-      } else {
-        console.log(
-          "[SharePoint] No SharePoint URL configured, setting error state"
-        );
+    // Don't load data if no SharePoint URL or if MSAL instance is not ready
+    if (!siteUrl || !instance) {
+      if (!siteUrl) {
+        console.warn("[SharePoint] No SharePoint URL configured");
+        // Initialize with sample data for local development
         dispatch({
-          type: "SET_ERROR",
-          payload: "SharePoint URL not configured",
+          type: "INIT_TABLES",
+          payload: {
+            tagsTable: [
+              { id: 1, name: "Critical" },
+              { id: 2, name: "Production" },
+              { id: 3, name: "Development" },
+              { id: 4, name: "Testing" },
+              { id: 5, name: "Backup" },
+              { id: 6, name: "Network" },
+              { id: 7, name: "Security" },
+              { id: 8, name: "Legacy" },
+            ],
+            tags: [
+              "Critical",
+              "Production",
+              "Development",
+              "Testing",
+              "Backup",
+              "Network",
+              "Security",
+              "Legacy",
+            ],
+            categoriesTable: [
+              { id: 1, name: "Laptop" },
+              { id: 2, name: "Desktop" },
+              { id: 3, name: "Server" },
+              { id: 4, name: "Network" },
+              { id: 5, name: "Mobile" },
+              { id: 6, name: "Peripheral" },
+              { id: 7, name: "Software" },
+              { id: 8, name: "Other" },
+            ],
+            categories: [
+              "Laptop",
+              "Desktop",
+              "Server",
+              "Network",
+              "Mobile",
+              "Peripheral",
+              "Software",
+              "Other",
+            ],
+            statusesTable: [
+              { id: 1, name: "In Use" },
+              { id: 2, name: "In Repair" },
+              { id: 3, name: "In Stock" },
+              { id: 4, name: "Retired" },
+            ],
+            statuses: ["In Use", "In Repair", "In Stock", "Retired"],
+            venturesTable: [
+              { id: 1, name: "Venture A" },
+              { id: 2, name: "Venture B" },
+              { id: 3, name: "Venture C" },
+            ],
+            ventures: ["Venture A", "Venture B", "Venture C"],
+            departmentsTable: [
+              { id: 1, name: "IT" },
+              { id: 2, name: "Finance" },
+              { id: 3, name: "HR" },
+              { id: 4, name: "Operations" },
+            ],
+            departments: ["IT", "Finance", "HR", "Operations"],
+            softwareTable: [
+              { id: 1, name: "Windows 11" },
+              { id: 2, name: "Office 365" },
+              { id: 3, name: "Adobe Creative Suite" },
+              { id: 4, name: "Visual Studio Code" },
+              { id: 5, name: "Chrome" },
+              { id: 6, name: "Firefox" },
+              { id: 7, name: "Slack" },
+              { id: 8, name: "Teams" },
+            ],
+            software: [
+              "Windows 11",
+              "Office 365",
+              "Adobe Creative Suite",
+              "Visual Studio Code",
+              "Chrome",
+              "Firefox",
+              "Slack",
+              "Teams",
+            ],
+            loading: false,
+          },
         });
-        dispatch({ type: "SET_LOADING", payload: false });
       }
-    };
+      if (!instance) {
+        console.warn("[SharePoint] MSAL instance not ready");
+      }
+      return;
+    }
 
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteUrl, instance]);
+  }, [siteUrl, instance, accounts]);
+
+  // Separate effect to handle authentication state changes
+  useEffect(() => {
+    if (siteUrl && instance && accounts && accounts.length > 0) {
+      console.log("[SharePoint] Authentication state changed, reloading data");
+      // Clear any existing errors when authentication state changes
+      dispatch({ type: "SET_ERROR", payload: null });
+      // Set loading state to show progress
+      dispatch({ type: "SET_LOADING", payload: true });
+      // Longer delay to ensure MSAL state is fully stable
+      setTimeout(() => {
+        loadData();
+      }, 500);
+    } else if (accounts && accounts.length === 0) {
+      // User logged out, clear data and errors
+      console.log("[SharePoint] User logged out, clearing data");
+      dispatch({ type: "SET_ERROR", payload: null });
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  }, [accounts, siteUrl, instance]);
 
   // Denormalize helpers for UI views
   // Note: These functions are not currently used but kept for future reference
   // const buildAssetsView = () => { ... };
   // const buildLicensesView = () => { ... };
+
+  // Function to check if user is authenticated
+  const isAuthenticated = () => {
+    return instance && instance.getAllAccounts().length > 0;
+  };
+
+  // Function to manually refresh all data
+  const refreshData = async () => {
+    if (siteUrl && instance) {
+      dispatch({ type: "SET_LOADING", payload: true });
+      dispatch({ type: "SET_ERROR", payload: null });
+      try {
+        await loadData();
+      } catch (error) {
+        console.error("[SharePoint] Manual refresh failed:", error);
+        dispatch({ type: "SET_ERROR", payload: String(error) });
+      }
+    }
+  };
 
   // SharePoint integration (incremental start with Assets list)
   const loadAssetsFromSharePoint = async () => {
@@ -485,13 +609,11 @@ export const AssetProvider = ({ children }) => {
       return;
     }
     try {
-      console.log("[SharePoint] Loading categories from SharePoint...");
       const categories = await getCategoriesFromSharePoint(
         instance,
         siteUrl,
         "Categories"
       );
-      console.log("[SharePoint] Categories loaded:", categories);
 
       // Update the categories table with SharePoint data
       dispatch({
@@ -520,13 +642,11 @@ export const AssetProvider = ({ children }) => {
   const loadVenturesFromSharePoint = async () => {
     if (!siteUrl) return null;
     try {
-      console.log("[SharePoint] Loading ventures from SharePoint...");
       const ventures = await getVenturesFromSharePoint(
         instance,
         siteUrl,
         "Ventures"
       );
-      console.log("[SharePoint] Ventures loaded:", ventures);
 
       dispatch({
         type: "INIT_TABLES",
@@ -552,13 +672,11 @@ export const AssetProvider = ({ children }) => {
   const loadDepartmentsFromSharePoint = async () => {
     if (!siteUrl) return null;
     try {
-      console.log("[SharePoint] Loading departments from SharePoint...");
       const departments = await getDepartmentsFromSharePoint(
         instance,
         siteUrl,
         "Departments"
       );
-      console.log("[SharePoint] Departments loaded:", departments);
 
       dispatch({
         type: "INIT_TABLES",
@@ -584,13 +702,11 @@ export const AssetProvider = ({ children }) => {
   const loadStatusesFromSharePoint = async () => {
     if (!siteUrl) return null;
     try {
-      console.log("[SharePoint] Loading statuses from SharePoint...");
       const statuses = await getStatusesFromSharePoint(
         instance,
         siteUrl,
         "Statuses"
       );
-      console.log("[SharePoint] Statuses loaded:", statuses);
 
       dispatch({
         type: "INIT_TABLES",
@@ -616,13 +732,11 @@ export const AssetProvider = ({ children }) => {
   const loadSuppliersFromSharePoint = async () => {
     if (!siteUrl) return null;
     try {
-      console.log("[SharePoint] Loading suppliers from SharePoint...");
       const suppliers = await getSuppliersFromSharePoint(
         instance,
         siteUrl,
         "Suppliers"
       );
-      console.log("[SharePoint] Suppliers loaded:", suppliers);
 
       dispatch({
         type: "INIT_TABLES",
@@ -648,9 +762,7 @@ export const AssetProvider = ({ children }) => {
   const loadTagsFromSharePoint = async () => {
     if (!siteUrl) return null;
     try {
-      console.log("[SharePoint] Loading tags from SharePoint...");
       const tags = await getTagsFromSharePoint(instance, siteUrl, "Tags");
-      console.log("[SharePoint] Tags loaded:", tags);
 
       dispatch({
         type: "INIT_TABLES",
@@ -668,13 +780,11 @@ export const AssetProvider = ({ children }) => {
   const loadSoftwareCatalogFromSharePoint = async () => {
     if (!siteUrl) return null;
     try {
-      console.log("[SharePoint] Loading Software_Catalog from SharePoint...");
       const software = await getSoftwareCatalogFromSharePoint(
         instance,
         siteUrl,
         "Software_Catalog"
       );
-      console.log("[SharePoint] Software_Catalog loaded:", software);
 
       dispatch({
         type: "INIT_TABLES",
@@ -691,13 +801,11 @@ export const AssetProvider = ({ children }) => {
   // Load licenses from SharePoint
   const loadLicensesFromSharePointContext = async () => {
     try {
-      console.log("[SharePoint] Loading licenses from SharePoint...");
       const licenses = await loadLicensesFromSharePoint(
         instance,
         siteUrl,
         "Licenses"
       );
-      console.log("[SharePoint] Licenses loaded:", licenses);
 
       dispatch({
         type: "SET_LICENSES",
@@ -708,6 +816,111 @@ export const AssetProvider = ({ children }) => {
     } catch (error) {
       console.error("[SharePoint] Failed to load Licenses:", error);
       return null;
+    }
+  };
+
+  // Load asset history from SharePoint
+  const loadAssetHistoryFromSharePoint = async () => {
+    try {
+      const assetHistory = await getAssetHistoryFromSharePoint(
+        instance,
+        siteUrl,
+        "Asset_History"
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetHistory },
+      });
+
+      return assetHistory;
+    } catch (error) {
+      console.error("[SharePoint] Failed to load Asset_History:", error);
+      return [];
+    }
+  };
+
+  // Load license history from SharePoint
+  const loadLicenseHistoryFromSharePoint = async () => {
+    try {
+      const licenseHistory = await getLicenseHistoryFromSharePoint(
+        instance,
+        siteUrl,
+        "License_History"
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { licenseHistory },
+      });
+
+      return licenseHistory;
+    } catch (error) {
+      console.error("[SharePoint] Failed to load License_History:", error);
+      return [];
+    }
+  };
+
+  // Load asset tags from SharePoint
+  const loadAssetTagsFromSharePoint = async () => {
+    try {
+      const assetTags = await getAssetTagsFromSharePoint(
+        instance,
+        siteUrl,
+        "Asset_Tags"
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetTags },
+      });
+
+      return assetTags;
+    } catch (error) {
+      console.error("[SharePoint] Failed to load Asset_Tags:", error);
+      return [];
+    }
+  };
+
+  // Load asset software from SharePoint
+  const loadAssetSoftwareFromSharePoint = async () => {
+    try {
+      const assetSoftware = await getAssetSoftwareFromSharePoint(
+        instance,
+        siteUrl,
+        "Asset_Software"
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetSoftware },
+      });
+
+      return assetSoftware;
+    } catch (error) {
+      console.error("[SharePoint] Failed to load Asset_Software:", error);
+      return [];
+    }
+  };
+
+  // Load asset relations from SharePoint
+  const loadAssetRelationsFromSharePoint = async () => {
+    try {
+      const assetRelations = await getAssetRelationsFromSharePoint(
+        instance,
+        siteUrl,
+        "Asset_Relations"
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetRelations },
+      });
+
+      return assetRelations;
+    } catch (error) {
+      console.error("[SharePoint] Failed to load Asset_Relations:", error);
+      return [];
     }
   };
 
@@ -1542,6 +1755,517 @@ export const AssetProvider = ({ children }) => {
     }
   };
 
+  // CRUD functions for Tags
+  const addTag = async (tagName) => {
+    if (!tagName?.trim()) return null;
+
+    try {
+      // Local fallback
+      const newId = (state.tagsTable[state.tagsTable.length - 1]?.id || 0) + 1;
+      const newTag = { id: newId, name: tagName };
+      dispatch({
+        type: "INIT_TABLES",
+        payload: {
+          tagsTable: [...state.tagsTable, newTag],
+          tags: [...state.tags, tagName],
+        },
+      });
+      return newTag;
+    } catch (error) {
+      console.error("[Tags] Failed to create tag:", error);
+      return null;
+    }
+  };
+
+  const updateTag = async (tagId, newName) => {
+    if (!newName?.trim()) return null;
+
+    try {
+      // Local fallback
+      const updatedTable = state.tagsTable.map((tag) =>
+        tag.id === tagId ? { ...tag, name: newName } : tag
+      );
+      const updatedNames = updatedTable.map((tag) => tag.name);
+      dispatch({
+        type: "INIT_TABLES",
+        payload: {
+          tagsTable: updatedTable,
+          tags: updatedNames,
+        },
+      });
+      return { id: tagId, name: newName };
+    } catch (error) {
+      console.error("[Tags] Failed to update tag:", error);
+      return null;
+    }
+  };
+
+  const deleteTag = async (tagId) => {
+    if (!tagId) {
+      console.warn("[Tags] Attempted to delete item with invalid ID:", tagId);
+      return false;
+    }
+
+    try {
+      // Remove all asset-tag relationships first
+      const updatedAssetTags = state.assetTags.filter(
+        (at) => at.tagId !== tagId
+      );
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetTags: updatedAssetTags },
+      });
+
+      // Then remove the tag
+      const updatedTable = state.tagsTable.filter((tag) => tag.id !== tagId);
+      const updatedNames = updatedTable.map((tag) => tag.name);
+      dispatch({
+        type: "INIT_TABLES",
+        payload: {
+          tagsTable: updatedTable,
+          tags: updatedNames,
+        },
+      });
+      return true;
+    } catch (error) {
+      console.error("[Tags] Failed to delete tag:", error);
+      return false;
+    }
+  };
+
+  // CRUD functions for Asset Tags
+  const addAssetTag = async (assetId, tagId) => {
+    if (!assetId || !tagId) return null;
+
+    try {
+      // Check if relationship already exists
+      const existing = state.assetTags.find(
+        (at) => at.assetId === assetId && at.tagId === tagId
+      );
+      if (existing) return existing;
+
+      const newId = (state.assetTags[state.assetTags.length - 1]?.id || 0) + 1;
+      let newAssetTag = { id: newId, assetId, tagId };
+
+      // Create in SharePoint if configured
+      if (siteUrl) {
+        try {
+          const createdAssetTag = await createAssetTagInSharePoint(
+            instance,
+            siteUrl,
+            newAssetTag
+          );
+          if (createdAssetTag) {
+            newAssetTag = createdAssetTag;
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetTags] SharePoint creation failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetTags: [...state.assetTags, newAssetTag] },
+      });
+
+      return newAssetTag;
+    } catch (error) {
+      console.error("[AssetTags] Failed to add asset tag:", error);
+      return null;
+    }
+  };
+
+  const removeAssetTag = async (assetId, tagId) => {
+    if (!assetId || !tagId) return false;
+
+    try {
+      // Delete from SharePoint if configured
+      if (siteUrl) {
+        try {
+          const assetTag = state.assetTags.find(
+            (at) => at.assetId === assetId && at.tagId === tagId
+          );
+          if (assetTag) {
+            await deleteAssetTagFromSharePoint(instance, siteUrl, assetTag.id);
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetTags] SharePoint deletion failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      const updatedTags = state.assetTags.filter(
+        (at) => !(at.assetId === assetId && at.tagId === tagId)
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetTags: updatedTags },
+      });
+
+      return true;
+    } catch (error) {
+      console.error("[AssetTags] Failed to remove asset tag:", error);
+      return false;
+    }
+  };
+
+  const getAssetTags = (assetId) => {
+    return state.assetTags
+      .filter((at) => at.assetId === assetId)
+      .map((at) => state.tagsTable.find((tag) => tag.id === at.tagId))
+      .filter(Boolean);
+  };
+
+  const getAssetsByTag = (tagId) => {
+    return state.assetTags
+      .filter((at) => at.tagId === tagId)
+      .map((at) => state.assetsCore.find((asset) => asset.id === at.assetId))
+      .filter(Boolean);
+  };
+
+  // CRUD functions for Asset Software
+  const addAssetSoftware = async (assetId, softwareId) => {
+    if (!assetId || !softwareId) return null;
+
+    try {
+      // Check if relationship already exists
+      const existing = state.assetSoftware.find(
+        (as) => as.assetId === assetId && as.softwareId === softwareId
+      );
+      if (existing) return existing;
+
+      const newId =
+        (state.assetSoftware[state.assetSoftware.length - 1]?.id || 0) + 1;
+      let newAssetSoftware = { id: newId, assetId, softwareId };
+
+      // Create in SharePoint if configured
+      if (siteUrl) {
+        try {
+          const createdAssetSoftware = await createAssetSoftwareInSharePoint(
+            instance,
+            siteUrl,
+            newAssetSoftware
+          );
+          if (createdAssetSoftware) {
+            newAssetSoftware = createdAssetSoftware;
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetSoftware] SharePoint creation failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetSoftware: [...state.assetSoftware, newAssetSoftware] },
+      });
+
+      return newAssetSoftware;
+    } catch (error) {
+      console.error("[AssetSoftware] Failed to add asset software:", error);
+      return null;
+    }
+  };
+
+  const removeAssetSoftware = async (assetId, softwareId) => {
+    if (!assetId || !softwareId) return false;
+
+    try {
+      // Delete from SharePoint if configured
+      if (siteUrl) {
+        try {
+          const assetSoftware = state.assetSoftware.find(
+            (as) => as.assetId === assetId && as.softwareId === softwareId
+          );
+          if (assetSoftware) {
+            await deleteAssetSoftwareFromSharePoint(
+              instance,
+              siteUrl,
+              assetSoftware.id
+            );
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetSoftware] SharePoint deletion failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      const updatedSoftware = state.assetSoftware.filter(
+        (as) => !(as.assetId === assetId && as.softwareId === softwareId)
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetSoftware: updatedSoftware },
+      });
+
+      return true;
+    } catch (error) {
+      console.error("[AssetSoftware] Failed to remove asset software:", error);
+      return false;
+    }
+  };
+
+  const getAssetSoftware = (assetId) => {
+    return state.assetSoftware
+      .filter((as) => as.assetId === assetId)
+      .map((as) =>
+        state.softwareTable.find((software) => software.id === as.softwareId)
+      )
+      .filter(Boolean);
+  };
+
+  const getAssetsBySoftware = (softwareId) => {
+    return state.assetSoftware
+      .filter((as) => as.softwareId === softwareId)
+      .map((as) => state.assetsCore.find((asset) => asset.id === as.assetId))
+      .filter(Boolean);
+  };
+
+  // CRUD functions for Asset Relations
+  const createAssetRelation = async (parentAssetId, childAssetId) => {
+    if (!parentAssetId || !childAssetId || parentAssetId === childAssetId)
+      return null;
+
+    try {
+      // Check if relationship already exists
+      const existing = state.assetRelations.find(
+        (ar) =>
+          ar.parentAssetId === parentAssetId && ar.childAssetId === childAssetId
+      );
+      if (existing) return existing;
+
+      const newId =
+        (state.assetRelations[state.assetRelations.length - 1]?.id || 0) + 1;
+      let newRelation = { id: newId, parentAssetId, childAssetId };
+
+      // Create in SharePoint if configured
+      if (siteUrl) {
+        try {
+          const createdRelation = await createAssetRelationInSharePoint(
+            instance,
+            siteUrl,
+            newRelation
+          );
+          if (createdRelation) {
+            newRelation = createdRelation;
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetRelations] SharePoint creation failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetRelations: [...state.assetRelations, newRelation] },
+      });
+
+      return newRelation;
+    } catch (error) {
+      console.error("[AssetRelations] Failed to create asset relation:", error);
+      return null;
+    }
+  };
+
+  const removeAssetRelation = async (parentAssetId, childAssetId) => {
+    if (!parentAssetId || !childAssetId) return false;
+
+    try {
+      // Delete from SharePoint if configured
+      if (siteUrl) {
+        try {
+          const assetRelation = state.assetRelations.find(
+            (ar) =>
+              ar.parentAssetId === parentAssetId &&
+              ar.childAssetId === childAssetId
+          );
+          if (assetRelation) {
+            await deleteAssetRelationFromSharePoint(
+              instance,
+              siteUrl,
+              assetRelation.id
+            );
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetRelations] SharePoint deletion failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      const updatedRelations = state.assetRelations.filter(
+        (ar) =>
+          !(
+            ar.parentAssetId === parentAssetId &&
+            ar.childAssetId === childAssetId
+          )
+      );
+
+      dispatch({
+        type: "INIT_TABLES",
+        payload: { assetRelations: updatedRelations },
+      });
+
+      return true;
+    } catch (error) {
+      console.error("[AssetRelations] Failed to remove asset relation:", error);
+      return false;
+    }
+  };
+
+  const getAssetChildren = (assetId) => {
+    return state.assetRelations
+      .filter((ar) => ar.parentAssetId === assetId)
+      .map((ar) =>
+        state.assetsCore.find((asset) => asset.id === ar.childAssetId)
+      )
+      .filter(Boolean);
+  };
+
+  const getAssetParents = (assetId) => {
+    return state.assetRelations
+      .filter((ar) => ar.childAssetId === assetId)
+      .map((ar) =>
+        state.assetsCore.find((asset) => asset.id === ar.parentAssetId)
+      )
+      .filter(Boolean);
+  };
+
+  const getAssetHierarchy = (assetId) => {
+    const children = getAssetChildren(assetId);
+    const parents = getAssetParents(assetId);
+
+    return {
+      children,
+      parents,
+      hasRelations: children.length > 0 || parents.length > 0,
+    };
+  };
+
+  // Enhanced History Management
+  const addAssetHistoryEntry = async (
+    assetId,
+    action,
+    actorName = "System"
+  ) => {
+    if (!assetId || !action) return null;
+
+    try {
+      const newId =
+        (state.assetHistory[state.assetHistory.length - 1]?.id || 0) + 1;
+      let newEntry = {
+        id: newId,
+        assetId,
+        date: new Date().toISOString(), // Full ISO datetime for SharePoint
+        action,
+        user: actorName,
+      };
+
+      // Create in SharePoint if configured
+      if (siteUrl) {
+        try {
+          const createdEntry = await createAssetHistoryInSharePoint(
+            instance,
+            siteUrl,
+            newEntry
+          );
+          if (createdEntry) {
+            newEntry = createdEntry;
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[AssetHistory] SharePoint creation failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      dispatch({
+        type: "ADD_ASSET_HISTORY",
+        payload: newEntry,
+      });
+
+      return newEntry;
+    } catch (error) {
+      console.error("[AssetHistory] Failed to add history entry:", error);
+      return null;
+    }
+  };
+
+  const addLicenseHistoryEntry = async (
+    licenseId,
+    action,
+    actorName = "System"
+  ) => {
+    if (!licenseId || !action) return null;
+
+    try {
+      const newId =
+        (state.licenseHistory[state.licenseHistory.length - 1]?.id || 0) + 1;
+      let newEntry = {
+        id: newId,
+        licenseId,
+        date: new Date().toISOString(), // Full ISO datetime for SharePoint
+        action,
+        user: actorName,
+      };
+
+      // Create in SharePoint if configured
+      if (siteUrl) {
+        try {
+          const createdEntry = await createLicenseHistoryInSharePoint(
+            instance,
+            siteUrl,
+            newEntry
+          );
+          if (createdEntry) {
+            newEntry = createdEntry;
+          }
+        } catch (sharePointError) {
+          console.warn(
+            "[LicenseHistory] SharePoint creation failed, keeping local only:",
+            sharePointError
+          );
+        }
+      }
+
+      dispatch({
+        type: "ADD_LICENSE_HISTORY",
+        payload: newEntry,
+      });
+
+      return newEntry;
+    } catch (error) {
+      console.error("[LicenseHistory] Failed to add history entry:", error);
+      return null;
+    }
+  };
+
+  const getAssetHistory = (assetId) => {
+    const filtered = state.assetHistory.filter((h) => h.assetId === assetId);
+    return filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+  };
+
+  const getLicenseHistory = (licenseId) => {
+    return state.licenseHistory
+      .filter((h) => h.licenseId === licenseId)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+  };
+
   // CRUD helpers (UI → normalized persistence)
   const addAsset = async (assetData) => {
     // when SharePoint configured, create remotely first
@@ -1595,6 +2319,10 @@ export const AssetProvider = ({ children }) => {
           });
           // store the created as-is (already normalized id from SP)
           dispatch({ type: "ADD_ASSET", payload: created });
+
+          // Add history entry
+          await addAssetHistoryEntry(created.id, "Asset created", "System");
+
           // joins (tags/software) would be separate lists; defer for now
           return created;
         }
@@ -1642,6 +2370,10 @@ export const AssetProvider = ({ children }) => {
       notes: assetData.notes || "",
     };
     dispatch({ type: "ADD_ASSET", payload: normalized });
+
+    // Add history entry
+    await addAssetHistoryEntry(normalized.id, "Asset created", "System");
+
     return normalized;
   };
 
@@ -1706,6 +2438,12 @@ export const AssetProvider = ({ children }) => {
             }
           );
           dispatch({ type: "UPDATE_ASSET", payload: updatedRemote });
+
+          // Add history entry
+          const action = `Asset updated: ${Object.keys(updates).join(", ")}`;
+
+          await addAssetHistoryEntry(assetId, action, "System");
+
           return updatedRemote;
         }
       } catch (error) {
@@ -1771,6 +2509,12 @@ export const AssetProvider = ({ children }) => {
     };
 
     dispatch({ type: "UPDATE_ASSET", payload: updated });
+
+    // Add history entry
+    const action = `Asset updated: ${Object.keys(updates).join(", ")}`;
+
+    await addAssetHistoryEntry(assetId, action, "System");
+
     return updated;
   };
 
@@ -1784,20 +2528,12 @@ export const AssetProvider = ({ children }) => {
     }
 
     try {
-      console.log(`[SharePoint] Attempting to delete asset ${assetId}...`);
-
       // Try to delete from SharePoint first if available
       if (siteUrl) {
         try {
-          console.log(
-            "[SharePoint] SharePoint configured, attempting remote deletion..."
-          );
           // Ensure we have write permissions
           await acquireToken(instance, ["Sites.ReadWrite.All"]);
           await deleteAssetFromSharePoint(instance, siteUrl, assetId);
-          console.log(
-            `[SharePoint] Asset ${assetId} deleted from SharePoint successfully`
-          );
         } catch (sharePointError) {
           console.warn(
             "[SharePoint] Failed to delete asset from SharePoint:",
@@ -1805,18 +2541,13 @@ export const AssetProvider = ({ children }) => {
           );
           // Continue with local deletion even if SharePoint fails
         }
-      } else {
-        console.log(
-          "[SharePoint] No SharePoint URL configured, deleting locally only"
-        );
       }
 
       // Always delete locally
-      console.log(`[SharePoint] Deleting asset ${assetId} from local state...`);
       dispatch({ type: "DELETE_ASSET", payload: assetId });
-      console.log(
-        `[SharePoint] Asset ${assetId} deleted from local state successfully`
-      );
+
+      // Note: History entries are automatically cleaned up by the DELETE_ASSET reducer
+
       return true;
     } catch (error) {
       console.error("[SharePoint] Failed to delete asset:", error);
@@ -1869,15 +2600,9 @@ export const AssetProvider = ({ children }) => {
 
       dispatch({ type: "ADD_LICENSE", payload: created });
 
-      const histId =
-        (state.licenseHistory[state.licenseHistory.length - 1]?.id || 0) + 1;
-      state.licenseHistory.push({
-        id: histId,
-        licenseId: created.id,
-        date: formatDate(new Date()),
-        action: "License created",
-        user: "System",
-      });
+      // Add history entry
+      await addLicenseHistoryEntry(created.id, "License created", "System");
+
       return created;
     } catch (error) {
       console.error("[SharePoint] Failed to add license:", error);
@@ -1936,15 +2661,10 @@ export const AssetProvider = ({ children }) => {
 
       dispatch({ type: "UPDATE_LICENSE", payload: finalUpdated });
 
-      const histId =
-        (state.licenseHistory[state.licenseHistory.length - 1]?.id || 0) + 1;
-      state.licenseHistory.push({
-        id: histId,
-        licenseId,
-        date: formatDate(new Date()),
-        action: "License updated",
-        user: "System",
-      });
+      // Add history entry
+      const action = `License updated: ${Object.keys(updates).join(", ")}`;
+      await addLicenseHistoryEntry(licenseId, action, "System");
+
       return updated;
     } catch (error) {
       console.error("[SharePoint] Failed to update license:", error);
@@ -1975,6 +2695,9 @@ export const AssetProvider = ({ children }) => {
           licenses: updatedNames,
         },
       });
+
+      // Note: History entries are automatically cleaned up by the DELETE_LICENSE reducer
+
       return true;
     } catch (error) {
       console.error("[SharePoint] Failed to delete license:", error);
@@ -2001,6 +2724,12 @@ export const AssetProvider = ({ children }) => {
         (s) => s && s.id === asset.supplierId
       );
 
+      // Get related data
+      const tags = getAssetTags(asset.id);
+      const software = getAssetSoftware(asset.id);
+      const history = getAssetHistory(asset.id);
+      const hierarchy = getAssetHierarchy(asset.id);
+
       return {
         ...asset,
         category: category?.name || "",
@@ -2008,6 +2737,12 @@ export const AssetProvider = ({ children }) => {
         venture: venture?.name || "",
         department: department?.name || "",
         supplier: supplier?.name || "",
+        tags: (tags || []).map((tag) => tag.name),
+        software: (software || []).map((sw) => sw.name),
+        history: history,
+        children: hierarchy.children,
+        parents: hierarchy.parents,
+        hasRelations: hierarchy.hasRelations,
       };
     });
   };
@@ -2027,6 +2762,9 @@ export const AssetProvider = ({ children }) => {
         (s) => s && s.id === license.supplierId
       );
 
+      // Get history
+      const history = getLicenseHistory(license.id);
+
       return {
         ...license,
         softwareId: license.softwareId,
@@ -2034,6 +2772,7 @@ export const AssetProvider = ({ children }) => {
         venture: venture?.name || "",
         department: department?.name || "",
         supplier: supplier?.name || "",
+        history: history,
       };
     });
   };
@@ -2067,6 +2806,9 @@ export const AssetProvider = ({ children }) => {
   };
 
   const value = {
+    // Authentication helper
+    isAuthenticated,
+
     // Expose UI-ready views under the same keys used by components
     assets: getAssetsView(),
     licenses: getLicensesView(),
@@ -2085,6 +2827,7 @@ export const AssetProvider = ({ children }) => {
     categoriesTable: state.categoriesTable,
     statusesTable: state.statusesTable,
     suppliersTable: state.suppliersTable,
+    tagsTable: state.tagsTable,
     softwareTable: state.softwareTable,
 
     loading: state.loading,
@@ -2106,6 +2849,7 @@ export const AssetProvider = ({ children }) => {
     searchAssets,
 
     // SharePoint (incremental)
+    refreshData,
     loadAssetsFromSharePoint,
     loadCategoriesFromSharePoint,
     loadVenturesFromSharePoint,
@@ -2114,7 +2858,12 @@ export const AssetProvider = ({ children }) => {
     loadSuppliersFromSharePoint,
     loadTagsFromSharePoint,
     loadSoftwareCatalogFromSharePoint,
-    loadLicensesFromSharePointContext, // Add this line
+    loadLicensesFromSharePointContext,
+    loadAssetHistoryFromSharePoint,
+    loadLicenseHistoryFromSharePoint,
+    loadAssetTagsFromSharePoint,
+    loadAssetSoftwareFromSharePoint,
+    loadAssetRelationsFromSharePoint,
     addCategory,
     updateCategory,
     deleteCategory,
@@ -2133,6 +2882,26 @@ export const AssetProvider = ({ children }) => {
     addSoftware,
     updateSoftware,
     deleteSoftware,
+    addAssetTag,
+    removeAssetTag,
+    getAssetTags,
+    getAssetsByTag,
+    addAssetSoftware,
+    removeAssetSoftware,
+    getAssetSoftware,
+    getAssetsBySoftware,
+    createAssetRelation,
+    removeAssetRelation,
+    getAssetChildren,
+    getAssetParents,
+    getAssetHierarchy,
+    addAssetHistoryEntry,
+    addLicenseHistoryEntry,
+    getAssetHistory,
+    getLicenseHistory,
+    addTag,
+    updateTag,
+    deleteTag,
   };
 
   return (

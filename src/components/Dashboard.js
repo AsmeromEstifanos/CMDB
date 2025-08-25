@@ -20,6 +20,8 @@ const Dashboard = () => {
     licenses,
     ventures,
     loading,
+    error,
+    refreshData,
     getAssetsByVenture,
     getAssetsByCategory,
     getExpiringLicenses,
@@ -102,6 +104,102 @@ const Dashboard = () => {
 
   if (loading) {
     return <LoadingSpinner text="Loading dashboard data..." />;
+  }
+
+  // Show error with refresh button if there's an authentication error
+  if (
+    error &&
+    (error.includes("authenticated") ||
+      error.includes("Token acquisition failed") ||
+      error.includes("No authenticated user") ||
+      error.includes("MSAL initialization failed"))
+  ) {
+    return (
+      <div className="space-y-8">
+        <div className="mb-8">
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle text-lg">
+            Overview of your SVH Configuration Management Database
+          </p>
+        </div>
+
+        <div className="card p-6 border-amber-200 bg-amber-50">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-amber-600 text-white flex items-center justify-center">
+              <AlertTriangle size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-amber-800 mb-2">
+                Authentication Required
+              </h3>
+              <p className="text-amber-700 mb-4">
+                {error}. Please try refreshing the data or logging in again.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={refreshData}
+                  disabled={loading}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? "Refreshing..." : "Refresh Data"}
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors"
+                >
+                  Reload Page
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show general error with refresh button for other errors
+  if (error) {
+    return (
+      <div className="space-y-8">
+        <div className="mb-8">
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle text-lg">
+            Overview of your SVH Configuration Management Database
+          </p>
+        </div>
+        
+        <div className="card p-6 border-red-200 bg-red-50">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-red-600 text-white flex items-center justify-center">
+              <AlertTriangle size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-red-800 mb-2">
+                Error Loading Data
+              </h3>
+              <p className="text-red-700 mb-4">
+                {error}. Please try refreshing the data.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={refreshData}
+                  disabled={loading}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? "Refreshing..." : "Refresh Data"}
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-slate-600 text-white rounded-md hover:bg-slate-700 transition-colors"
+                >
+                  Reload Page
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

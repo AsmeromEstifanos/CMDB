@@ -134,7 +134,6 @@ const LicenseManagement = () => {
 
         const success = await deleteLicense(licenseId);
         if (success) {
-          console.log(`License ${licenseId} deleted successfully`);
         } else {
           console.error(`Failed to delete license ${licenseId}`);
         }
@@ -161,24 +160,13 @@ const LicenseManagement = () => {
     try {
       // Determine file type from extension
       const fileExtension = file.name.split(".").pop().toLowerCase();
-      console.log(`[Import] Processing ${fileExtension} file: ${file.name}`);
 
       const importedLicenses = await importFromFile(file, fileExtension);
-      console.log(
-        `[Import] Parsed ${importedLicenses?.length || 0} licenses:`,
-        importedLicenses
-      );
 
       if (importedLicenses && importedLicenses.length > 0) {
-        console.log(
-          `${importedLicenses.length} licenses imported successfully.`
-        );
-
         // Process each imported license
         for (const licenseData of importedLicenses) {
           try {
-            console.log(`[Import] Processing license:`, licenseData);
-
             // Create a normalized license object
             const normalizedLicense = {
               name:
@@ -240,14 +228,8 @@ const LicenseManagement = () => {
               // Add other fields as needed
             };
 
-            console.log(`[Import] Normalized license:`, normalizedLicense);
-
             // Add to context using the addLicense function
             await addLicense(normalizedLicense);
-            console.log(
-              `[Import] License added successfully:`,
-              normalizedLicense.name
-            );
           } catch (licenseError) {
             console.error(
               "Error processing imported license:",

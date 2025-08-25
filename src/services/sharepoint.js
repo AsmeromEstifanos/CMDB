@@ -23,10 +23,6 @@ export async function acquireToken(instance, scopes) {
   // If we have any accounts, ONLY use silent acquisition - NO POPUPS
   if (allAccounts.length > 0 || activeAccount) {
     const accountToUse = activeAccount || allAccounts[0];
-    console.log(
-      "[SharePoint] Using existing account for silent token acquisition:",
-      accountToUse?.username
-    );
 
     try {
       const request = {
@@ -34,7 +30,7 @@ export async function acquireToken(instance, scopes) {
         account: accountToUse,
       };
       const result = await instance.acquireTokenSilent(request);
-      console.log("[SharePoint] Silent token acquisition successful");
+
       return result.accessToken;
     } catch (silentError) {
       console.warn(
@@ -946,5 +942,346 @@ export async function deleteAssetFromSharePoint(
   } catch (error) {
     console.error("[SharePoint] Failed to delete asset:", error);
     throw error;
+  }
+}
+
+// History management functions
+export async function createAssetHistoryInSharePoint(
+  instance,
+  siteUrl,
+  historyEntry,
+  listName = "Asset_History"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
+    const fields = {
+      AssetId: historyEntry.assetId,
+      EventDate: historyEntry.date,
+      Action: historyEntry.action,
+      ActorName: historyEntry.user,
+    };
+
+    const created = await graphPost(url, token, { fields });
+
+    return {
+      ...historyEntry,
+      id: created.id,
+    };
+  } catch (error) {
+    console.error("[SharePoint] Failed to create asset history entry:", error);
+    throw error;
+  }
+}
+
+export async function createLicenseHistoryInSharePoint(
+  instance,
+  siteUrl,
+  historyEntry,
+  listName = "License_History"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
+    const fields = {
+      LicenseId: historyEntry.licenseId,
+      EventDate: historyEntry.date,
+      Action: historyEntry.action,
+      ActorName: historyEntry.user,
+    };
+
+    const created = await graphPost(url, token, { fields });
+    return {
+      ...historyEntry,
+      id: created.id,
+    };
+  } catch (error) {
+    console.error(
+      "[SharePoint] Failed to create license history entry:",
+      error
+    );
+    throw error;
+  }
+}
+
+// Asset relationship management functions
+export async function createAssetTagInSharePoint(
+  instance,
+  siteUrl,
+  assetTag,
+  listName = "Asset_Tags"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
+    const fields = {
+      AssetId: assetTag.assetId,
+      TagId: assetTag.tagId,
+    };
+
+    const created = await graphPost(url, token, { fields });
+    return {
+      ...assetTag,
+      id: created.id,
+    };
+  } catch (error) {
+    console.error("[SharePoint] Failed to create asset tag:", error);
+    throw error;
+  }
+}
+
+export async function deleteAssetTagFromSharePoint(
+  instance,
+  siteUrl,
+  assetTagId,
+  listName = "Asset_Tags"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items/${assetTagId}`;
+    await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (error) {
+    console.error("[SharePoint] Failed to delete asset tag:", error);
+    throw error;
+  }
+}
+
+export async function createAssetSoftwareInSharePoint(
+  instance,
+  siteUrl,
+  assetSoftware,
+  listName = "Asset_Software"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
+    const fields = {
+      AssetId: assetSoftware.assetId,
+      SoftwareId: assetSoftware.softwareId,
+    };
+
+    const created = await graphPost(url, token, { fields });
+    return {
+      ...assetSoftware,
+      id: created.id,
+    };
+  } catch (error) {
+    console.error("[SharePoint] Failed to create asset software:", error);
+    throw error;
+  }
+}
+
+export async function deleteAssetSoftwareFromSharePoint(
+  instance,
+  siteUrl,
+  assetSoftwareId,
+  listName = "Asset_Software"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items/${assetSoftwareId}`;
+    await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (error) {
+    console.error("[SharePoint] Failed to delete asset software:", error);
+    throw error;
+  }
+}
+
+export async function createAssetRelationInSharePoint(
+  instance,
+  siteUrl,
+  assetRelation,
+  listName = "Asset_Relations"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
+    const fields = {
+      ParentAssetId: assetRelation.parentAssetId,
+      ChildAssetId: assetRelation.childAssetId,
+    };
+
+    const created = await graphPost(url, token, { fields });
+    return {
+      ...assetRelation,
+      id: created.id,
+    };
+  } catch (error) {
+    console.error("[SharePoint] Failed to create asset relation:", error);
+    throw error;
+  }
+}
+
+export async function deleteAssetRelationFromSharePoint(
+  instance,
+  siteUrl,
+  assetRelationId,
+  listName = "Asset_Relations"
+) {
+  try {
+    const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items/${assetRelationId}`;
+    await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (error) {
+    console.error("[SharePoint] Failed to delete asset relation:", error);
+    throw error;
+  }
+}
+
+// Load existing data from SharePoint lists
+export async function getAssetHistoryFromSharePoint(
+  instance,
+  siteUrl,
+  listName = "Asset_History"
+) {
+  try {
+    const token = await acquireToken(instance, defaultScopes());
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items?expand=fields&$select=id,fields`;
+    const response = await graphGet(url, token);
+
+    return response.value.map((item) => ({
+      id: item.id,
+      assetId: item.fields.AssetId,
+      date: item.fields.EventDate,
+      action: item.fields.Action,
+      user: item.fields.ActorName,
+    }));
+  } catch (error) {
+    console.error("[SharePoint] Failed to load asset history:", error);
+    return [];
+  }
+}
+
+export async function getLicenseHistoryFromSharePoint(
+  instance,
+  siteUrl,
+  listName = "License_History"
+) {
+  try {
+    const token = await acquireToken(instance, defaultScopes());
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items?expand=fields&$select=id,fields`;
+    const response = await graphGet(url, token);
+
+    return response.value.map((item) => ({
+      id: item.id,
+      licenseId: item.fields.LicenseId,
+      date: item.fields.EventDate,
+      action: item.fields.Action,
+      user: item.fields.ActorName,
+    }));
+  } catch (error) {
+    console.error("[SharePoint] Failed to load license history:", error);
+    return [];
+  }
+}
+
+export async function getAssetTagsFromSharePoint(
+  instance,
+  siteUrl,
+  listName = "Asset_Tags"
+) {
+  try {
+    const token = await acquireToken(instance, defaultScopes());
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items?expand=fields&$select=id,fields`;
+    const response = await graphGet(url, token);
+
+    return response.value.map((item) => ({
+      id: item.id,
+      assetId: item.fields.AssetId,
+      tagId: item.fields.TagId,
+    }));
+  } catch (error) {
+    console.error("[SharePoint] Failed to load asset tags:", error);
+    return [];
+  }
+}
+
+export async function getAssetSoftwareFromSharePoint(
+  instance,
+  siteUrl,
+  listName = "Asset_Software"
+) {
+  try {
+    const token = await acquireToken(instance, defaultScopes());
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items?expand=fields&$select=id,fields`;
+    const response = await graphGet(url, token);
+
+    return response.value.map((item) => ({
+      id: item.id,
+      assetId: item.fields.AssetId,
+      softwareId: item.fields.SoftwareId,
+    }));
+  } catch (error) {
+    console.error("[SharePoint] Failed to load asset software:", error);
+    return [];
+  }
+}
+
+export async function getAssetRelationsFromSharePoint(
+  instance,
+  siteUrl,
+  listName = "Asset_Relations"
+) {
+  try {
+    const token = await acquireToken(instance, defaultScopes());
+    const siteId = await getSiteId(instance, siteUrl);
+    const listId = await getListIdByName(instance, siteId, listName);
+
+    const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items?expand=fields&$select=id,fields`;
+    const response = await graphGet(url, token);
+
+    return response.value.map((item) => ({
+      id: item.id,
+      parentAssetId: item.fields.ParentAssetId,
+      childAssetId: item.fields.ChildAssetId,
+    }));
+  } catch (error) {
+    console.error("[SharePoint] Failed to load asset relations:", error);
+    return [];
   }
 }

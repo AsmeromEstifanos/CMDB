@@ -30,6 +30,7 @@ const AssetManagement = () => {
   const {
     assets,
     ventures,
+    departments,
     categories,
     statuses,
     deleteAsset,
@@ -41,6 +42,7 @@ const AssetManagement = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedVenture, setSelectedVenture] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -58,6 +60,8 @@ const AssetManagement = () => {
     if (searchTerm) filtered = searchAssets(searchTerm);
     if (selectedVenture)
       filtered = filtered.filter((a) => a.venture === selectedVenture);
+    if (selectedDepartment)
+      filtered = filtered.filter((a) => a.department === selectedDepartment);
     if (selectedCategory)
       filtered = filtered.filter((a) => a.category === selectedCategory);
     if (selectedStatus)
@@ -89,6 +93,7 @@ const AssetManagement = () => {
     assets,
     searchTerm,
     selectedVenture,
+    selectedDepartment,
     selectedCategory,
     selectedStatus,
     sortField,
@@ -121,7 +126,6 @@ const AssetManagement = () => {
 
         const success = await deleteAsset(assetId);
         if (success) {
-          console.log(`Asset ${assetId} deleted successfully`);
         } else {
           console.error(`Failed to delete asset ${assetId}`);
         }
@@ -148,22 +152,13 @@ const AssetManagement = () => {
     try {
       // Determine file type from extension
       const fileExtension = file.name.split(".").pop().toLowerCase();
-      console.log(`[Import] Processing ${fileExtension} file: ${file.name}`);
 
       const importedAssets = await importFromFile(file, fileExtension);
-      console.log(
-        `[Import] Parsed ${importedAssets?.length || 0} assets:`,
-        importedAssets
-      );
 
       if (importedAssets && importedAssets.length > 0) {
-        console.log(`${importedAssets.length} assets imported successfully.`);
-
         // Process each imported asset
         for (const assetData of importedAssets) {
           try {
-            console.log(`[Import] Processing asset:`, assetData);
-
             // Create a normalized asset object
             const normalizedAsset = {
               name:
@@ -217,14 +212,8 @@ const AssetManagement = () => {
               // Add other fields as needed
             };
 
-            console.log(`[Import] Normalized asset:`, normalizedAsset);
-
             // Add to context using the addAsset function
             await addAsset(normalizedAsset);
-            console.log(
-              `[Import] Asset added successfully:`,
-              normalizedAsset.name
-            );
           } catch (assetError) {
             console.error(
               "Error processing imported asset:",
@@ -258,6 +247,7 @@ const AssetManagement = () => {
   const clearFilters = () => {
     setSearchTerm("");
     setSelectedVenture("");
+    setSelectedDepartment("");
     setSelectedCategory("");
     setSelectedStatus("");
   };
@@ -379,6 +369,21 @@ const AssetManagement = () => {
             </select>
           </div>
           <div>
+            <label className="form-label">Department</label>
+            <select
+              className="form-select"
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+            >
+              <option value="">All Departments</option>
+              {departments.map((department) => (
+                <option key={department} value={department}>
+                  {department}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="form-label">Category</label>
             <select
               className="form-select"
@@ -418,7 +423,7 @@ const AssetManagement = () => {
           </div>
 
           <div className="card overflow-x-auto">
-            <table className="table min-w-[800px]">
+            <table className="table min-w-[1000px]">
               <thead>
                 <tr>
                   <th
@@ -447,10 +452,17 @@ const AssetManagement = () => {
                   </th>
                   <th
                     className="cursor-pointer"
+                    onClick={() => handleSort("department")}
+                  >
+                    Department {getSortIcon("department")}
+                  </th>
+                  <th
+                    className="cursor-pointer"
                     onClick={() => handleSort("assignedToName")}
                   >
                     Assigned To {getSortIcon("assignedToName")}
                   </th>
+                  <th>Tags & Software</th>
                   <th
                     className="cursor-pointer"
                     onClick={() => handleSort("cost")}
@@ -516,6 +528,11 @@ const AssetManagement = () => {
                         </span>
                       </td>
                       <td>
+                        <span className="inline-block text-xs font-medium px-2 py-1 rounded bg-purple-100 text-purple-700">
+                          {asset.department || "N/A"}
+                        </span>
+                      </td>
+                      <td>
                         <div className="leading-tight">
                           <div className="text-slate-800">
                             {asset.assignedToName}
@@ -523,6 +540,36 @@ const AssetManagement = () => {
                           <div className="text-xs text-slate-500">
                             {asset.userTitle}
                           </div>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          {asset.tags && asset.tags.length > 0 && (
+                            <>
+                              {asset.tags.map((tag, index) => (
+                                <span
+                                  key={index}
+                                  className="inline-block text-xs font-medium px-2 py-1 rounded bg-purple-100 text-purple-700"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </>
+                          )}
+                          {asset.software &&
+                            Array.isArray(asset.software) &&
+                            asset.software.length > 0 && (
+                              <>
+                                {asset.software.map((sw, index) => (
+                                  <span
+                                    key={index}
+                                    className="inline-block text-xs font-medium px-2 py-1 rounded bg-green-100 text-green-700"
+                                  >
+                                    {sw}
+                                  </span>
+                                ))}
+                              </>
+                            )}
                         </div>
                       </td>
                       <td className="font-mono text-emerald-700 font-semibold">

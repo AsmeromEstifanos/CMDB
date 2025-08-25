@@ -11,8 +11,10 @@ import {
   Database,
   Shield,
   Users,
+  RefreshCw,
 } from "lucide-react";
 import AuthButtons from "./AuthButtons";
+import { useAssets } from "../context/AssetContext";
 
 const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -20,6 +22,7 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
     typeof window !== "undefined" ? window.innerWidth < 1024 : false
   );
   const location = useLocation();
+  const { refreshData, loading } = useAssets();
 
   useEffect(() => {
     const onResize = () => {
@@ -80,37 +83,49 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
               </>
             )}
           </div>
-          <button
-            className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10"
-            onClick={() => {
-              if (isMobile) {
-                setIsMobileMenuOpen(!isMobileMenuOpen);
-              } else {
-                setIsCollapsed(!isCollapsed);
-              }
-            }}
-            title={
-              isMobile
-                ? isMobileMenuOpen
-                  ? "Close menu"
-                  : "Open menu"
-                : isNavCollapsed
-                ? "Expand sidebar"
-                : "Collapse sidebar"
-            }
-          >
-            {isMobile ? (
-              isMobileMenuOpen ? (
-                <X size={20} />
-              ) : (
-                <Menu size={20} />
-              )
-            ) : isNavCollapsed ? (
-              <Menu size={20} />
-            ) : (
-              <X size={20} />
+          <div className="flex items-center gap-2">
+            {!isNavCollapsed && (
+              <button
+                onClick={refreshData}
+                disabled={loading}
+                className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Refresh Data"
+              >
+                <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+              </button>
             )}
-          </button>
+            <button
+              className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10"
+              onClick={() => {
+                if (isMobile) {
+                  setIsMobileMenuOpen(!isMobileMenuOpen);
+                } else {
+                  setIsCollapsed(!isCollapsed);
+                }
+              }}
+              title={
+                isMobile
+                  ? isMobileMenuOpen
+                    ? "Close menu"
+                    : "Open menu"
+                  : isNavCollapsed
+                  ? "Expand sidebar"
+                  : "Collapse sidebar"
+              }
+            >
+                          {isMobile ? (
+                isMobileMenuOpen ? (
+                  <X size={20} />
+                ) : (
+                  <Menu size={20} />
+                )
+              ) : isNavCollapsed ? (
+                <Menu size={20} />
+              ) : (
+                <X size={20} />
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col py-4 h-[calc(100vh-76px)]">
