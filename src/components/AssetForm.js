@@ -22,6 +22,7 @@ const AssetForm = ({ asset, onClose }) => {
     statuses,
     assets,
     loading,
+    users,
   } = useAssets();
 
   const [formData, setFormData] = useState({
@@ -30,7 +31,6 @@ const AssetForm = ({ asset, onClose }) => {
     status: "",
     venture: "",
     department: "",
-    owner: "",
     assignedToName: "",
     userTitle: "",
     assignedDate: "",
@@ -62,7 +62,6 @@ const AssetForm = ({ asset, onClose }) => {
         status: asset.status || "",
         venture: asset.venture || "",
         department: asset.department || "",
-        owner: asset.ownerName || "",
         assignedToName: asset.assignedToName || "",
         userTitle: asset.userTitle || "",
         assignedDate: asset.assignedDate || formatDate(new Date()),
@@ -348,21 +347,11 @@ const AssetForm = ({ asset, onClose }) => {
                   )}
                 </div>
                 <div>
-                  <label className="form-label">Owner</label>
-                  <input
-                    type="text"
-                    name="owner"
-                    className="form-input"
-                    value={formData.owner}
-                    onChange={handleChange}
-                    placeholder="Business ownerNameor cost center head"
-                  />
-                </div>
-                <div>
                   <label className="form-label">Assigned To *</label>
                   <input
                     type="text"
                     name="assignedToName"
+                    list="userOptions"
                     className={`form-input ${
                       errors.assignedToName
                         ? "border-rose-400 ring-rose-100 ring-2"
@@ -370,8 +359,16 @@ const AssetForm = ({ asset, onClose }) => {
                     }`}
                     value={formData.assignedToName}
                     onChange={handleChange}
-                    placeholder="User name"
+                    placeholder="Start typing to search users"
+                    autoComplete="off"
                   />
+                  <datalist id="userOptions">
+                    {(users || []).map((u) => (
+                      <option key={u.id} value={u.name}>
+                        {u.email}
+                      </option>
+                    ))}
+                  </datalist>
                   {errors.assignedToName && (
                     <span className="text-rose-600 text-xs mt-1 block">
                       {errors.assignedToName}

@@ -317,6 +317,18 @@ export async function getSoftwareCatalogFromSharePoint(
   }));
 }
 
+// Microsoft 365 users (Azure AD) helpers
+export async function getUsersFromGraph(instance, top = 50) {
+  const token = await acquireToken(instance, defaultScopes());
+  const url = `${GRAPH_BASE}/users?$select=id,displayName,mail,userPrincipalName&$top=${top}`;
+  const data = await graphGet(url, token);
+  return (data.value || []).map((u) => ({
+    id: u.id,
+    name: u.displayName || u.userPrincipalName || u.mail || "",
+    email: u.mail || u.userPrincipalName || "",
+  }));
+}
+
 export async function createVentureInSharePoint(
   instance,
   siteUrl,

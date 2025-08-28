@@ -51,6 +51,7 @@ import {
   getAssetTagsFromSharePoint,
   getAssetSoftwareFromSharePoint,
   getAssetRelationsFromSharePoint,
+  getUsersFromGraph,
 } from "../services/sharepoint";
 
 const AssetContext = createContext();
@@ -87,6 +88,9 @@ const initialState = {
   suppliers: [],
   tags: [],
   software: [],
+
+  // Directory users
+  users: [], // { id, name, email }
 
   loading: true, // Start with loading true
   error: null,
@@ -288,6 +292,7 @@ export const AssetProvider = ({ children }) => {
           await loadTagsFromSharePoint();
           await loadSoftwareCatalogFromSharePoint();
           await loadLicensesFromSharePointContext(); // Load licenses from SharePoint
+          await loadUsersFromGraphDirectory(); // Load M365 users
 
           // Load relationship and history data
           await loadAssetHistoryFromSharePoint();
@@ -795,6 +800,18 @@ export const AssetProvider = ({ children }) => {
     } catch (error) {
       console.error("[SharePoint] Failed to load Software_Catalog:", error);
       return null;
+    }
+  };
+
+  // Load Microsoft 365 Users via Graph
+  const loadUsersFromGraphDirectory = async () => {
+    try {
+      const users = await getUsersFromGraph(instance, 999);
+      dispatch({ type: "INIT_TABLES", payload: { users } });
+      return users;
+    } catch (error) {
+      console.error("[Graph] Failed to load users:", error);
+      return [];
     }
   };
 
@@ -2820,6 +2837,7 @@ export const AssetProvider = ({ children }) => {
     statuses: state.statuses,
     suppliers: state.suppliers,
     software: state.software,
+    users: state.users,
 
     // Expose normalized tables with real SharePoint IDs for Settings
     venturesTable: state.venturesTable,
