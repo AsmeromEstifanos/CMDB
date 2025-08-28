@@ -2378,6 +2378,13 @@ export const AssetProvider = ({ children }) => {
 
           // Add history entry
           await addAssetHistoryEntry(created.id, "Asset created", "System");
+          if (assetData.assignedToName) {
+            await addAssetHistoryEntry(
+              created.id,
+              `Assigned to: ${assetData.assignedToName}`,
+              "System"
+            );
+          }
 
           // joins (tags/software) would be separate lists; defer for now
           return created;
@@ -2429,6 +2436,13 @@ export const AssetProvider = ({ children }) => {
 
     // Add history entry
     await addAssetHistoryEntry(normalized.id, "Asset created", "System");
+    if (assetData.assignedToName) {
+      await addAssetHistoryEntry(
+        normalized.id,
+        `Assigned to: ${assetData.assignedToName}`,
+        "System"
+      );
+    }
 
     return normalized;
   };
@@ -2499,6 +2513,19 @@ export const AssetProvider = ({ children }) => {
           const action = `Asset updated: ${Object.keys(updates).join(", ")}`;
 
           await addAssetHistoryEntry(assetId, action, "System");
+          // Track assignment change
+          if (
+            Object.prototype.hasOwnProperty.call(updates, "assignedToName") &&
+            updates.assignedToName !== existing.assignedToName
+          ) {
+            const fromUser = existing.assignedToName || "Unassigned";
+            const toUser = updates.assignedToName || "Unassigned";
+            await addAssetHistoryEntry(
+              assetId,
+              `Assigned user changed: ${fromUser} → ${toUser}`,
+              "System"
+            );
+          }
 
           return updatedRemote;
         }
@@ -2570,6 +2597,19 @@ export const AssetProvider = ({ children }) => {
     const action = `Asset updated: ${Object.keys(updates).join(", ")}`;
 
     await addAssetHistoryEntry(assetId, action, "System");
+    // Track assignment change (local path)
+    if (
+      Object.prototype.hasOwnProperty.call(updates, "assignedToName") &&
+      updates.assignedToName !== existing.assignedToName
+    ) {
+      const fromUser = existing.assignedToName || "Unassigned";
+      const toUser = updates.assignedToName || "Unassigned";
+      await addAssetHistoryEntry(
+        assetId,
+        `Assigned user changed: ${fromUser} → ${toUser}`,
+        "System"
+      );
+    }
 
     return updated;
   };
