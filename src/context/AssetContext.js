@@ -283,23 +283,28 @@ export const AssetProvider = ({ children }) => {
           // Clear any previous errors
           dispatch({ type: "SET_ERROR", payload: null });
 
-          await loadAssetsFromSharePoint();
-          await loadCategoriesFromSharePoint();
-          await loadVenturesFromSharePoint();
-          await loadDepartmentsFromSharePoint();
-          await loadStatusesFromSharePoint();
-          await loadSuppliersFromSharePoint();
-          await loadTagsFromSharePoint();
-          await loadSoftwareCatalogFromSharePoint();
-          await loadLicensesFromSharePointContext(); // Load licenses from SharePoint
-          await loadUsersFromGraphDirectory(); // Load M365 users
+          // Core data in parallel (skip loaders that decide to early-return)
+          await Promise.allSettled([
+            loadAssetsFromSharePoint(),
+            loadCategoriesFromSharePoint(),
+            loadVenturesFromSharePoint(),
+            loadDepartmentsFromSharePoint(),
+            loadStatusesFromSharePoint(),
+            loadSuppliersFromSharePoint(),
+            loadTagsFromSharePoint(),
+            loadSoftwareCatalogFromSharePoint(),
+            loadLicensesFromSharePointContext(),
+            loadUsersFromGraphDirectory(),
+          ]);
 
-          // Load relationship and history data
-          await loadAssetHistoryFromSharePoint();
-          await loadLicenseHistoryFromSharePoint();
-          await loadAssetTagsFromSharePoint();
-          await loadAssetSoftwareFromSharePoint();
-          await loadAssetRelationsFromSharePoint();
+          // Relationship/history in parallel
+          await Promise.allSettled([
+            loadAssetHistoryFromSharePoint(),
+            loadLicenseHistoryFromSharePoint(),
+            loadAssetTagsFromSharePoint(),
+            loadAssetSoftwareFromSharePoint(),
+            loadAssetRelationsFromSharePoint(),
+          ]);
 
           // Set loading to false after successful data load
           dispatch({ type: "SET_LOADING", payload: false });
@@ -594,16 +599,17 @@ export const AssetProvider = ({ children }) => {
       console.warn("[SharePoint] REACT_APP_SHAREPOINT_SITE_URL is not set");
       return;
     }
+    // Skip if already loaded
+    if (state.assetsCore && state.assetsCore.length > 0)
+      return state.assetsCore;
     try {
-      dispatch({ type: "SET_LOADING", payload: true });
       const assets = await getAssetsFromSharePoint(instance, siteUrl, "Assets");
       // Replace local assetsCore with remote data
       dispatch({ type: "SET_ASSETS", payload: assets });
+      return assets;
     } catch (error) {
       console.error("[SharePoint] Failed to load Assets:", error);
       dispatch({ type: "SET_ERROR", payload: String(error) });
-    } finally {
-      dispatch({ type: "SET_LOADING", payload: false });
     }
   };
 
@@ -613,6 +619,8 @@ export const AssetProvider = ({ children }) => {
       console.warn("[SharePoint] REACT_APP_SHAREPOINT_SITE_URL is not set");
       return;
     }
+    if (state.categoriesTable && state.categoriesTable.length > 0)
+      return state.categoriesTable;
     try {
       const categories = await getCategoriesFromSharePoint(
         instance,
@@ -646,6 +654,8 @@ export const AssetProvider = ({ children }) => {
   // Load ventures from SharePoint
   const loadVenturesFromSharePoint = async () => {
     if (!siteUrl) return null;
+    if (state.venturesTable && state.venturesTable.length > 0)
+      return state.venturesTable;
     try {
       const ventures = await getVenturesFromSharePoint(
         instance,
@@ -676,6 +686,8 @@ export const AssetProvider = ({ children }) => {
   // Load departments from SharePoint
   const loadDepartmentsFromSharePoint = async () => {
     if (!siteUrl) return null;
+    if (state.departmentsTable && state.departmentsTable.length > 0)
+      return state.departmentsTable;
     try {
       const departments = await getDepartmentsFromSharePoint(
         instance,
@@ -706,6 +718,8 @@ export const AssetProvider = ({ children }) => {
   // Load statuses from SharePoint
   const loadStatusesFromSharePoint = async () => {
     if (!siteUrl) return null;
+    if (state.statusesTable && state.statusesTable.length > 0)
+      return state.statusesTable;
     try {
       const statuses = await getStatusesFromSharePoint(
         instance,
@@ -736,6 +750,8 @@ export const AssetProvider = ({ children }) => {
   // Load suppliers from SharePoint
   const loadSuppliersFromSharePoint = async () => {
     if (!siteUrl) return null;
+    if (state.suppliersTable && state.suppliersTable.length > 0)
+      return state.suppliersTable;
     try {
       const suppliers = await getSuppliersFromSharePoint(
         instance,
@@ -766,6 +782,7 @@ export const AssetProvider = ({ children }) => {
   // Load tags from SharePoint
   const loadTagsFromSharePoint = async () => {
     if (!siteUrl) return null;
+    if (state.tagsTable && state.tagsTable.length > 0) return state.tagsTable;
     try {
       const tags = await getTagsFromSharePoint(instance, siteUrl, "Tags");
 
@@ -784,6 +801,8 @@ export const AssetProvider = ({ children }) => {
   // Load Software_Catalog from SharePoint
   const loadSoftwareCatalogFromSharePoint = async () => {
     if (!siteUrl) return null;
+    if (state.softwareTable && state.softwareTable.length > 0)
+      return state.softwareTable;
     try {
       const software = await getSoftwareCatalogFromSharePoint(
         instance,
@@ -806,8 +825,28 @@ export const AssetProvider = ({ children }) => {
   // Load Microsoft 365 Users via Graph
   const loadUsersFromGraphDirectory = async () => {
     try {
+      // Prefer cached users
+      let cachedUsers = [];
+      try {
+        const raw =
+          sessionStorage.getItem("cmdb_users") ||
+          localStorage.getItem("cmdb_users");
+        if (raw) cachedUsers = JSON.parse(raw);
+      } catch (_) {}
+      if (Array.isArray(cachedUsers) && cachedUsers.length > 0) {
+        dispatch({ type: "INIT_TABLES", payload: { users: cachedUsers } });
+        return cachedUsers;
+      }
+
+      // Skip if already in state
+      if (state.users && state.users.length > 0) return state.users;
+
       const users = await getUsersFromGraph(instance, 999);
       dispatch({ type: "INIT_TABLES", payload: { users } });
+      try {
+        sessionStorage.setItem("cmdb_users", JSON.stringify(users));
+        localStorage.setItem("cmdb_users", JSON.stringify(users));
+      } catch (_) {}
       return users;
     } catch (error) {
       console.error("[Graph] Failed to load users:", error);

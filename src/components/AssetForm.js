@@ -8,6 +8,7 @@ import {
   DollarSign,
   Tag,
   Server,
+  Loader,
 } from "lucide-react";
 import { formatDate, generateAssetTag } from "../utils/helpers";
 import LoadingSpinner from "./LoadingSpinner";
@@ -348,27 +349,36 @@ const AssetForm = ({ asset, onClose }) => {
                 </div>
                 <div>
                   <label className="form-label">Assigned To *</label>
-                  <input
-                    type="text"
-                    name="assignedToName"
-                    list="userOptions"
-                    className={`form-input ${
-                      errors.assignedToName
-                        ? "border-rose-400 ring-rose-100 ring-2"
-                        : ""
-                    }`}
-                    value={formData.assignedToName}
-                    onChange={handleChange}
-                    placeholder="Start typing to search users"
-                    autoComplete="off"
-                  />
-                  <datalist id="userOptions">
-                    {(users || []).map((u) => (
-                      <option key={u.id} value={u.name}>
-                        {u.email}
-                      </option>
-                    ))}
-                  </datalist>
+                  {!users || users.length === 0 ? (
+                    <div className="flex items-center gap-2 text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+                      <Loader className="animate-spin" size={16} />
+                      <span>Loading users...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        name="assignedToName"
+                        list="userOptions"
+                        className={`form-input ${
+                          errors.assignedToName
+                            ? "border-rose-400 ring-rose-100 ring-2"
+                            : ""
+                        }`}
+                        value={formData.assignedToName}
+                        onChange={handleChange}
+                        placeholder="Start typing to search users"
+                        autoComplete="off"
+                      />
+                      <datalist id="userOptions">
+                        {(users || []).map((u) => (
+                          <option key={u.id} value={u.name}>
+                            {u.email}
+                          </option>
+                        ))}
+                      </datalist>
+                    </>
+                  )}
                   {errors.assignedToName && (
                     <span className="text-rose-600 text-xs mt-1 block">
                       {errors.assignedToName}
