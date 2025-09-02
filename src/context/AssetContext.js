@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect } from "react";
-import { formatDate } from "../utils/helpers";
+import { formatDate, buildCSVString } from "../utils/helpers";
 import { useMsal } from "@azure/msal-react";
 import {
   getAssetsFromSharePoint,
@@ -52,6 +52,7 @@ import {
   getAssetSoftwareFromSharePoint,
   getAssetRelationsFromSharePoint,
   getUsersFromGraph,
+  uploadTextFileToDrive,
 } from "../services/sharepoint";
 
 const AssetContext = createContext();
@@ -2387,6 +2388,9 @@ export const AssetProvider = ({ children }) => {
           }
 
           // joins (tags/software) would be separate lists; defer for now
+
+          // After successful create, upload CSV snapshots with latest data
+          await uploadCsvSnapshots([...state.assetsCore, created], null);
           return created;
         }
       } catch (error) {
@@ -2444,6 +2448,8 @@ export const AssetProvider = ({ children }) => {
       );
     }
 
+    // Upload CSV snapshots (best-effort)
+    await uploadCsvSnapshots([...state.assetsCore, normalized], null);
     return normalized;
   };
 
@@ -2527,6 +2533,11 @@ export const AssetProvider = ({ children }) => {
             );
           }
 
+          // Upload CSV snapshots (best-effort) using updated array
+          const nextAssets = state.assetsCore.map((a) =>
+            a.id === assetId ? updatedRemote : a
+          );
+          await uploadCsvSnapshots(nextAssets, null);
           return updatedRemote;
         }
       } catch (error) {
@@ -2611,6 +2622,11 @@ export const AssetProvider = ({ children }) => {
       );
     }
 
+    // Upload CSV snapshots (best-effort) using updated array
+    const nextAssetsLocal = state.assetsCore.map((a) =>
+      a.id === assetId ? updated : a
+    );
+    await uploadCsvSnapshots(nextAssetsLocal, null);
     return updated;
   };
 
@@ -2644,6 +2660,9 @@ export const AssetProvider = ({ children }) => {
 
       // Note: History entries are automatically cleaned up by the DELETE_ASSET reducer
 
+      // Upload CSV snapshots (best-effort) using remaining array
+      const remaining = state.assetsCore.filter((a) => a.id !== assetId);
+      await uploadCsvSnapshots(remaining, null);
       return true;
     } catch (error) {
       console.error("[SharePoint] Failed to delete asset:", error);
@@ -2699,6 +2718,8 @@ export const AssetProvider = ({ children }) => {
       // Add history entry
       await addLicenseHistoryEntry(created.id, "License created", "System");
 
+      // Upload CSV snapshots (best-effort)
+      await uploadCsvSnapshots(null, [...state.licensesCore, created]);
       return created;
     } catch (error) {
       console.error("[SharePoint] Failed to add license:", error);
@@ -2761,6 +2782,11 @@ export const AssetProvider = ({ children }) => {
       const action = `License updated: ${Object.keys(updates).join(", ")}`;
       await addLicenseHistoryEntry(licenseId, action, "System");
 
+      // Upload CSV snapshots (best-effort)
+      const nextLicenses = state.licensesCore.map((l) =>
+        l.id === licenseId ? finalUpdated : l
+      );
+      await uploadCsvSnapshots(null, nextLicenses);
       return updated;
     } catch (error) {
       console.error("[SharePoint] Failed to update license:", error);
@@ -2794,6 +2820,9 @@ export const AssetProvider = ({ children }) => {
 
       // Note: History entries are automatically cleaned up by the DELETE_LICENSE reducer
 
+      // Upload CSV snapshots (best-effort)
+      const remainingLic = state.licensesCore.filter((l) => l.id !== licenseId);
+      await uploadCsvSnapshots(null, remainingLic);
       return true;
     } catch (error) {
       console.error("[SharePoint] Failed to delete license:", error);
@@ -2899,6 +2928,109 @@ export const AssetProvider = ({ children }) => {
         (asset.department && asset.department.toLowerCase().includes(lower)) ||
         (asset.assetTag && asset.assetTag.toLowerCase().includes(lower))
     );
+  };
+
+  // Build views from provided core arrays to ensure latest values are captured
+  const buildAssetsViewFrom = (assetsCoreInput) => {
+    const core = assetsCoreInput || state.assetsCore;
+    return core.map((asset) => {
+      const category = state.categoriesTable.find(
+        (c) => c && c.id === asset.categoryId
+      );
+      const status = state.statusesTable.find(
+        (s) => s && s.id === asset.statusId
+      );
+      const venture = state.venturesTable.find(
+        (v) => v && v.id === asset.ventureId
+      );
+      const department = state.departmentsTable.find(
+        (d) => d && d.id === asset.departmentId
+      );
+      const supplier = state.suppliersTable.find(
+        (s) => s && s.id === asset.supplierId
+      );
+      const tags = getAssetTags(asset.id);
+      const software = getAssetSoftware(asset.id);
+      const history = getAssetHistory(asset.id);
+      const hierarchy = getAssetHierarchy(asset.id);
+      return {
+        ...asset,
+        category: category?.name || "",
+        status: status?.name || "",
+        venture: venture?.name || "",
+        department: department?.name || "",
+        supplier: supplier?.name || "",
+        tags: (tags || []).map((tag) => tag.name),
+        software: (software || []).map((sw) => sw.name),
+        history,
+        children: hierarchy.children,
+        parents: hierarchy.parents,
+        hasRelations: hierarchy.hasRelations,
+      };
+    });
+  };
+
+  const buildLicensesViewFrom = (licensesCoreInput) => {
+    const core = licensesCoreInput || state.licensesCore;
+    return core.map((license) => {
+      const software = state.softwareTable.find(
+        (s) => s && s.id === license.softwareId
+      );
+      const venture = state.venturesTable.find(
+        (v) => v && v.id === license.ventureId
+      );
+      const department = state.departmentsTable.find(
+        (d) => d && d.id === license.departmentId
+      );
+      const supplier = state.suppliersTable.find(
+        (s) => s && s.id === license.supplierId
+      );
+      const history = getLicenseHistory(license.id);
+      return {
+        ...license,
+        softwareId: license.softwareId,
+        software: software?.name || "",
+        venture: venture?.name || "",
+        department: department?.name || "",
+        supplier: supplier?.name || "",
+        history,
+      };
+    });
+  };
+
+  // Upload full CSV snapshots to SharePoint drive "Asset"
+  const uploadCsvSnapshots = async (
+    assetsCoreOverride = null,
+    licensesCoreOverride = null
+  ) => {
+    if (!siteUrl || !instance) return;
+    try {
+      // Recompute views from overrides if provided to capture latest values
+      const assetsView = buildAssetsViewFrom(assetsCoreOverride);
+      const licensesView = buildLicensesViewFrom(licensesCoreOverride);
+      const assetsCsv = buildCSVString(assetsView);
+      const licensesCsv = buildCSVString(licensesView);
+      await Promise.all([
+        uploadTextFileToDrive(
+          instance,
+          siteUrl,
+          "Asset",
+          "Assets.csv",
+          assetsCsv,
+          "text/csv; charset=utf-8"
+        ),
+        uploadTextFileToDrive(
+          instance,
+          siteUrl,
+          "Asset",
+          "Licenses.csv",
+          licensesCsv,
+          "text/csv; charset=utf-8"
+        ),
+      ]);
+    } catch (e) {
+      console.warn("[SharePoint] CSV snapshot upload failed:", e);
+    }
   };
 
   const value = {

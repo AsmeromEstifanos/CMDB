@@ -141,6 +141,36 @@ export const exportToCSV = (data, filename) => {
   document.body.removeChild(link);
 };
 
+// Build CSV as string using the same rules as exportToCSV
+export const buildCSVString = (data) => {
+  if (!data || data.length === 0) return "";
+  // Build header as union of keys across all rows to avoid missing updated fields
+  const headerSet = new Set();
+  data.forEach((row) =>
+    Object.keys(row || {}).forEach((k) => headerSet.add(k))
+  );
+  const headers = Array.from(headerSet);
+  const csvContent = [
+    headers.join(","),
+    ...data.map((row) =>
+      headers
+        .map((header) => {
+          const value = row[header];
+          if (Array.isArray(value)) {
+            return `"${value.join("; ")}"`;
+          }
+          if (typeof value === "string" && value.includes(",")) {
+            return `"${value}"`;
+          }
+          return value || "";
+        })
+        .join(",")
+    ),
+  ].join("\n");
+
+  return csvContent;
+};
+
 // Export data to JSON
 export const exportToJSON = (data, filename) => {
   if (!data) return;

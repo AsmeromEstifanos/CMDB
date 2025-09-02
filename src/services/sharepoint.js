@@ -10,6 +10,18 @@ export const defaultScopes = () => {
   return ["Sites.Read.All"];
 };
 
+// Ensure SharePoint date-only columns receive yyyy-MM-dd
+function toSharePointDateOnly(value) {
+  if (!value) return undefined;
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d.toISOString().split("T")[0];
+  } catch (_) {
+    return undefined;
+  }
+}
+
 export async function acquireToken(instance, scopes) {
   // Check if MSAL is initialized
   if (!instance || !instance.getActiveAccount) {
@@ -95,6 +107,14 @@ async function graphPost(url, token, body) {
   });
   if (!res.ok) {
     const text = await res.text();
+    try {
+      console.warn("[SharePoint] POST failed", {
+        url,
+        status: res.status,
+        body,
+        response: text,
+      });
+    } catch (_) {}
     throw new Error(`POST ${url} failed: ${res.status} ${text}`);
   }
   return res.json();
@@ -122,6 +142,64 @@ export async function getSiteId(instance, siteUrl) {
   const url = `${GRAPH_BASE}/sites/${hostname}:${path}?$select=id`;
   const data = await graphGet(url, token);
   return data.id;
+}
+
+// Introspection helper to inspect list columns and required fields
+async function getListColumns(instance, siteUrl, listId) {
+  const token = await acquireToken(instance, defaultScopes());
+  const url = `${GRAPH_BASE}/sites/${await getSiteId(
+    instance,
+    siteUrl
+  )}/lists/${listId}/columns?$select=name,displayName,required`;
+  const data = await graphGet(url, token);
+  return data.value || [];
+}
+
+// Resolve a drive by display name within a SharePoint site (e.g., a document library)
+export async function getDriveIdByName(instance, siteUrl, driveName) {
+  const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+  const siteId = await getSiteId(instance, siteUrl);
+  const url = `${GRAPH_BASE}/sites/${siteId}/drives?$select=id,name`;
+  const data = await graphGet(url, token);
+  const drive = (data.value || []).find((d) => d.name === driveName);
+  if (!drive) throw new Error(`Drive not found: ${driveName}`);
+  return drive.id;
+}
+
+// Resolve drive ID with optional hardcoded env override
+async function resolveDriveId(instance, siteUrl, driveName) {
+  const override = (process.env.REACT_APP_ASSET_DRIVE_ID || "").trim();
+  if (override && driveName === "Asset") return override;
+  // If driveName looks like a GUID/ID already, accept it
+  if (driveName && /[0-9a-fA-F\-]{10,}/.test(driveName)) return driveName;
+  return getDriveIdByName(instance, siteUrl, driveName);
+}
+
+// Upload a text file (e.g., CSV) to a drive path. Path may include folders, e.g., "Assets.csv" or "reports/Assets.csv"
+export async function uploadTextFileToDrive(
+  instance,
+  siteUrl,
+  driveName,
+  filePath,
+  content,
+  contentType = "text/plain; charset=utf-8"
+) {
+  const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
+  const driveId = await resolveDriveId(instance, siteUrl, driveName);
+  const putUrl = `${GRAPH_BASE}/drives/${driveId}/root:/${filePath}:/content`;
+  const res = await fetch(putUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": contentType,
+    },
+    body: content,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`UPLOAD ${putUrl} failed: ${res.status} ${text}`);
+  }
+  return res.json ? res.json() : {};
 }
 
 export async function getListIdByName(instance, siteId, listName) {
@@ -864,7 +942,39 @@ export async function createLicenseInSharePoint(
       SupplierId: license.supplierId,
       Notes: license.notes,
     });
-    const created = await graphPost(url, token, { fields });
+    // Debug: log the outgoing payload
+    console.log("[SharePoint] Asset_History POST", {
+      url,
+      fields,
+    });
+    let created;
+    try {
+      created = await graphPost(url, token, { fields });
+    } catch (e) {
+      // Fallback: create minimal item with Title only if schema mismatch causes invalidRequest
+      const message = String(e && e.message ? e.message : e);
+      if (message.includes("invalidRequest")) {
+        console.warn(
+          "[SharePoint] Asset_History schema mismatch, creating minimal history item with Title only"
+        );
+        created = await graphPost(url, token, {
+          fields: { Title: fields.Title || "Asset event" },
+        });
+      } else {
+        // Try to surface required fields for debugging
+        try {
+          const cols = await getListColumns(instance, siteUrl, listId);
+          const required = cols
+            .filter((c) => c.required)
+            .map((c) => `${c.displayName} (${c.name})`);
+          console.warn(
+            "[SharePoint] Asset_History required columns:",
+            required
+          );
+        } catch (_) {}
+        throw e;
+      }
+    }
     // fetch created item expanded
     const getUrl = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items/${
       created.id
@@ -968,16 +1078,60 @@ export async function createAssetHistoryInSharePoint(
     const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
     const siteId = await getSiteId(instance, siteUrl);
     const listId = await getListIdByName(instance, siteId, listName);
+    console.log(listName);
 
     const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
-    const fields = {
-      AssetId: historyEntry.assetId,
-      EventDate: historyEntry.date,
-      Action: historyEntry.action,
-      ActorName: historyEntry.user,
-    };
+    // Allow overriding internal field names via env to match site schema
+    const AH_TITLE = (
+      process.env.REACT_APP_ASSET_HISTORY_TITLE || "Title"
+    ).trim();
+    const AH_ASSET_ID = (
+      process.env.REACT_APP_ASSET_HISTORY_ASSET_ID || "AssetId"
+    ).trim();
+    const AH_EVENT_DATE = (
+      process.env.REACT_APP_ASSET_HISTORY_EVENT_DATE || "EventDate"
+    ).trim();
+    const AH_ACTION = (
+      process.env.REACT_APP_ASSET_HISTORY_ACTION || "Action"
+    ).trim();
+    const AH_ACTOR = (
+      process.env.REACT_APP_ASSET_HISTORY_ACTOR || "ActorName"
+    ).trim();
 
-    const created = await graphPost(url, token, { fields });
+    const fields = pickDefined({
+      [AH_TITLE]: historyEntry.action || "Asset event",
+      [AH_ASSET_ID]: historyEntry.assetId,
+      [AH_EVENT_DATE]: toSharePointDateOnly(historyEntry.date),
+      [AH_ACTION]: historyEntry.action,
+      [AH_ACTOR]: historyEntry.user,
+    });
+
+    let created;
+    try {
+      created = await graphPost(url, token, { fields });
+    } catch (e) {
+      const message = String(e && e.message ? e.message : e);
+      if (message.includes("invalidRequest")) {
+        console.warn(
+          "[SharePoint] Asset_History schema mismatch, creating minimal history item with Title only"
+        );
+        created = await graphPost(url, token, {
+          fields: { [AH_TITLE]: fields[AH_TITLE] || "Asset event" },
+        });
+      } else {
+        try {
+          const cols = await getListColumns(instance, siteUrl, listId);
+          const required = cols
+            .filter((c) => c.required)
+            .map((c) => `${c.displayName} (${c.name})`);
+          console.warn(
+            "[SharePoint] Asset_History required columns:",
+            required
+          );
+        } catch (_) {}
+        throw e;
+      }
+    }
 
     return {
       ...historyEntry,
@@ -1001,13 +1155,35 @@ export async function createLicenseHistoryInSharePoint(
     const listId = await getListIdByName(instance, siteId, listName);
 
     const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
-    const fields = {
-      LicenseId: historyEntry.licenseId,
-      EventDate: historyEntry.date,
-      Action: historyEntry.action,
-      ActorName: historyEntry.user,
-    };
+    const LH_TITLE = (
+      process.env.REACT_APP_LICENSE_HISTORY_TITLE || "Title"
+    ).trim();
+    const LH_LICENSE_ID = (
+      process.env.REACT_APP_LICENSE_HISTORY_LICENSE_ID || "LicenseId"
+    ).trim();
+    const LH_EVENT_DATE = (
+      process.env.REACT_APP_LICENSE_HISTORY_EVENT_DATE || "EventDate"
+    ).trim();
+    const LH_ACTION = (
+      process.env.REACT_APP_LICENSE_HISTORY_ACTION || "Action"
+    ).trim();
+    const LH_ACTOR = (
+      process.env.REACT_APP_LICENSE_HISTORY_ACTOR || "ActorName"
+    ).trim();
 
+    const fields = pickDefined({
+      [LH_TITLE]: historyEntry.action || "License event",
+      [LH_LICENSE_ID]: historyEntry.licenseId,
+      [LH_EVENT_DATE]: toSharePointDateOnly(historyEntry.date),
+      [LH_ACTION]: historyEntry.action,
+      [LH_ACTOR]: historyEntry.user,
+    });
+
+    // Debug: log the outgoing payload
+    console.log("[SharePoint] License_History POST", {
+      url,
+      fields,
+    });
     const created = await graphPost(url, token, { fields });
     return {
       ...historyEntry,
