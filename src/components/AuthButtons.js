@@ -23,12 +23,14 @@ const AuthButtons = () => {
   };
 
   return (
-    <div className="mt-4 px-4">
+    <div>
       {isAuthed ? (
         <div className="flex items-center justify-between text-slate-300">
-          <span className="text-xs truncate">{accounts[0]?.username}</span>
+          <span className="text-xs truncate whitespace-nowrap">
+            {accounts[0]?.username}
+          </span>
           <button
-            className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+            className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 whitespace-nowrap"
             onClick={handleLogout}
           >
             Sign out
@@ -36,7 +38,7 @@ const AuthButtons = () => {
         </div>
       ) : (
         <button
-          className="w-full text-sm px-3 py-2 rounded bg-blue-500 hover:bg-blue-600 text-white"
+          className="w-full text-sm px-3 py-2 rounded bg-blue-500 hover:bg-blue-600 text-white whitespace-nowrap overflow-hidden text-ellipsis"
           onClick={handleLogin}
         >
           Sign in with Microsoft

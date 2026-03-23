@@ -95,9 +95,7 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
           >
             <Database className="w-8 h-8 text-blue-400 shrink-0" />
             {!isNavCollapsed && (
-              <span className="text-xl font-bold tracking-tight">
-                SVH CMDB
-              </span>
+              <span className="text-l font-bold whitespace-nowrap">CMDB</span>
             )}
           </div>
 
@@ -148,7 +146,9 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
                   >
                     <Icon size={20} className="shrink-0" />
                     {!isNavCollapsed && (
-                      <span className="font-medium">{item.label}</span>
+                      <span className="font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                        {item.label}
+                      </span>
                     )}
                   </Link>
                 </li>
@@ -156,11 +156,17 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
             })}
           </ul>
 
-          {!isNavCollapsed && (
-            <div className="mt-auto px-4 pt-4 border-t border-white/10">
+          <div
+            className={`mt-auto border-t border-white/10 px-4 pt-4 min-h-[88px] transition-opacity duration-300 ${
+              isNavCollapsed
+                ? "opacity-0 pointer-events-none"
+                : "opacity-100 pointer-events-auto"
+            }`}
+          >
+            <div className="min-h-[56px]">
               <AuthButtons />
             </div>
-          )}
+          </div>
         </div>
       </nav>
     </>
