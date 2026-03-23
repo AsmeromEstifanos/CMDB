@@ -166,6 +166,7 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
               <div className="space-y-2 text-slate-300 mb-3">
                 <div className="flex items-center gap-2 text-xs">
                   <Shield size={14} />
+                  <span>CI/CD Test</span>
                   <span>Secure CMDB</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
