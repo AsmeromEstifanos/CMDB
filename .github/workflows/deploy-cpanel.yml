@@ -55,6 +55,11 @@ jobs:
       - name: Build production app
         env:
           PUBLIC_URL: /cmdb
+          REACT_APP_AZURE_CLIENT_ID: ${{ secrets.REACT_APP_AZURE_CLIENT_ID }}
+          REACT_APP_AZURE_AUTHORITY: ${{ secrets.REACT_APP_AZURE_AUTHORITY }}
+          REACT_APP_SHAREPOINT_SITE_URL: ${{ secrets.REACT_APP_SHAREPOINT_SITE_URL }}
+          REACT_APP_ASSET_DRIVE_ID: ${{ secrets.REACT_APP_ASSET_DRIVE_ID }}
+          REACT_APP_REDIRECT_URI: ${{ secrets.REACT_APP_REDIRECT_URI }}
           # CRA treats warnings as build failures when CI=true.
           CI: "false"
         run: npm run build
@@ -72,4 +77,3 @@ jobs:
           exclude: |
             **/.git*
             **/.git*/**
-
