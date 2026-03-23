@@ -41,7 +41,7 @@ const AppShell = () => {
       <MobileHeader
         onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
       />
-      <main className="flex-1 bg-slate-50 overflow-y-auto p-4 sm:p-6 lg:p-8 lg:ml-72 pt-20 lg:pt-8">
+      <main className="flex-1 bg-slate-50 overflow-y-auto p-4 sm:p-6 lg:p-8 lg:ml-[72px] pt-20 lg:pt-8">
         {isAuthenticated ? (
           <Routes>
             <Route path="/cmdb/" element={<Dashboard />} />
