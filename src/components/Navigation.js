@@ -163,7 +163,7 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
 
           {!isNavCollapsed && (
             <div className="mt-auto px-4 pt-4 border-t border-white/10">
-              <div className="space-y-2 text-slate-300 mb-3">
+              {/* <div className="space-y-2 text-slate-300 mb-3">
                 <div className="flex items-center gap-2 text-xs">
                   <Shield size={14} />
                   <span>CI/CD Test</span>
@@ -173,7 +173,7 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
                   <Users size={14} />
                   <span>Multi-Venture</span>
                 </div>
-              </div>
+              </div> */}
               <AuthButtons />
             </div>
           )}
