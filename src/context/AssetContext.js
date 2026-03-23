@@ -553,7 +553,7 @@ export const AssetProvider = ({ children }) => {
   // Separate effect to handle authentication state changes
   useEffect(() => {
     if (siteUrl && instance && accounts && accounts.length > 0) {
-      console.log("[SharePoint] Authentication state changed, reloading data");
+      // console.log("[SharePoint] Authentication state changed, reloading data");
       // Clear any existing errors when authentication state changes
       dispatch({ type: "SET_ERROR", payload: null });
       // Set loading state to show progress
@@ -564,7 +564,7 @@ export const AssetProvider = ({ children }) => {
       }, 500);
     } else if (accounts && accounts.length === 0) {
       // User logged out, clear data and errors
-      console.log("[SharePoint] User logged out, clearing data");
+      // console.log("[SharePoint] User logged out, clearing data");
       dispatch({ type: "SET_ERROR", payload: null });
       dispatch({ type: "SET_LOADING", payload: false });
     }
@@ -2515,11 +2515,7 @@ export const AssetProvider = ({ children }) => {
           );
           dispatch({ type: "UPDATE_ASSET", payload: updatedRemote });
 
-          // Add history entry
-          const action = `Asset updated: ${Object.keys(updates).join(", ")}`;
-
-          await addAssetHistoryEntry(assetId, action, "System");
-          // Track assignment change
+          // Add concise history entries
           if (
             Object.prototype.hasOwnProperty.call(updates, "assignedToName") &&
             updates.assignedToName !== existing.assignedToName
@@ -2531,6 +2527,8 @@ export const AssetProvider = ({ children }) => {
               `Assigned user changed: ${fromUser} → ${toUser}`,
               "System"
             );
+          } else {
+            await addAssetHistoryEntry(assetId, "Asset updated", "System");
           }
 
           // Upload CSV snapshots (best-effort) using updated array
@@ -2604,11 +2602,7 @@ export const AssetProvider = ({ children }) => {
 
     dispatch({ type: "UPDATE_ASSET", payload: updated });
 
-    // Add history entry
-    const action = `Asset updated: ${Object.keys(updates).join(", ")}`;
-
-    await addAssetHistoryEntry(assetId, action, "System");
-    // Track assignment change (local path)
+    // Add concise history entries (local path)
     if (
       Object.prototype.hasOwnProperty.call(updates, "assignedToName") &&
       updates.assignedToName !== existing.assignedToName
@@ -2620,6 +2614,8 @@ export const AssetProvider = ({ children }) => {
         `Assigned user changed: ${fromUser} → ${toUser}`,
         "System"
       );
+    } else {
+      await addAssetHistoryEntry(assetId, "Asset updated", "System");
     }
 
     // Upload CSV snapshots (best-effort) using updated array

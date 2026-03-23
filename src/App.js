@@ -44,11 +44,11 @@ const AppShell = () => {
       <main className="flex-1 bg-slate-50 overflow-y-auto p-4 sm:p-6 lg:p-8 lg:ml-72 pt-20 lg:pt-8">
         {isAuthenticated ? (
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/assets" element={<AssetManagement />} />
-            <Route path="/licenses" element={<LicenseManagement />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/cmdb/" element={<Dashboard />} />
+            <Route path="/cmdb/assets" element={<AssetManagement />} />
+            <Route path="/cmdb/licenses" element={<LicenseManagement />} />
+            <Route path="/cmdb/reports" element={<Reports />} />
+            <Route path="/cmdb/settings" element={<Settings />} />
           </Routes>
         ) : (
           <div className="max-w-xl mx-auto mt-16 sm:mt-24 text-center">

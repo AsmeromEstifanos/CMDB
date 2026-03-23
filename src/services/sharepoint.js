@@ -10,6 +10,13 @@ export const defaultScopes = () => {
   return ["Sites.Read.All"];
 };
 
+// Ensure text fits SharePoint single-line text column (default max 255)
+function ensureMaxLength(value, max = 255) {
+  if (value == null) return "";
+  const str = String(value);
+  return str.length > max ? str.slice(0, max) : str;
+}
+
 // Ensure SharePoint date-only columns receive yyyy-MM-dd
 function toSharePointDateOnly(value) {
   if (!value) return undefined;
@@ -943,10 +950,10 @@ export async function createLicenseInSharePoint(
       Notes: license.notes,
     });
     // Debug: log the outgoing payload
-    console.log("[SharePoint] Asset_History POST", {
-      url,
-      fields,
-    });
+    // console.log("[SharePoint] Asset_History POST", {
+    //   url,
+    //   fields,
+    // });
     let created;
     try {
       created = await graphPost(url, token, { fields });
@@ -1078,7 +1085,6 @@ export async function createAssetHistoryInSharePoint(
     const token = await acquireToken(instance, ["Sites.ReadWrite.All"]);
     const siteId = await getSiteId(instance, siteUrl);
     const listId = await getListIdByName(instance, siteId, listName);
-    console.log(listName);
 
     const url = `${GRAPH_BASE}/sites/${siteId}/lists/${listId}/items`;
     // Allow overriding internal field names via env to match site schema
@@ -1099,11 +1105,11 @@ export async function createAssetHistoryInSharePoint(
     ).trim();
 
     const fields = pickDefined({
-      [AH_TITLE]: historyEntry.action || "Asset event",
+      [AH_TITLE]: ensureMaxLength(historyEntry.action || "Asset event", 255),
       [AH_ASSET_ID]: historyEntry.assetId,
       [AH_EVENT_DATE]: toSharePointDateOnly(historyEntry.date),
-      [AH_ACTION]: historyEntry.action,
-      [AH_ACTOR]: historyEntry.user,
+      [AH_ACTION]: ensureMaxLength(historyEntry.action, 255),
+      [AH_ACTOR]: ensureMaxLength(historyEntry.user, 255),
     });
 
     let created;
@@ -1113,10 +1119,14 @@ export async function createAssetHistoryInSharePoint(
       const message = String(e && e.message ? e.message : e);
       if (message.includes("invalidRequest")) {
         console.warn(
-          "[SharePoint] Asset_History schema mismatch, creating minimal history item with Title only"
+          "[SharePoint] Asset_History schema mismatch, creating minimal history item with Title + essential fields"
         );
         created = await graphPost(url, token, {
-          fields: { [AH_TITLE]: fields[AH_TITLE] || "Asset event" },
+          fields: pickDefined({
+            [AH_TITLE]: ensureMaxLength(fields[AH_TITLE] || "Asset event", 255),
+            [AH_ASSET_ID]: historyEntry.assetId,
+            [AH_EVENT_DATE]: toSharePointDateOnly(historyEntry.date),
+          }),
         });
       } else {
         try {
@@ -1172,7 +1182,7 @@ export async function createLicenseHistoryInSharePoint(
     ).trim();
 
     const fields = pickDefined({
-      [LH_TITLE]: historyEntry.action || "License event",
+      [LH_TITLE]: ensureMaxLength(historyEntry.action || "License event", 255),
       [LH_LICENSE_ID]: historyEntry.licenseId,
       [LH_EVENT_DATE]: toSharePointDateOnly(historyEntry.date),
       [LH_ACTION]: historyEntry.action,
@@ -1180,10 +1190,10 @@ export async function createLicenseHistoryInSharePoint(
     });
 
     // Debug: log the outgoing payload
-    console.log("[SharePoint] License_History POST", {
-      url,
-      fields,
-    });
+    // console.log("[SharePoint] License_History POST", {
+    //   url,
+    //   fields,
+    // });
     const created = await graphPost(url, token, { fields });
     return {
       ...historyEntry,

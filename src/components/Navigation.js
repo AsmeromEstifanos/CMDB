@@ -19,7 +19,7 @@ import { useAssets } from "../context/AssetContext";
 const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 1024 : false
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false,
   );
   const location = useLocation();
   const { refreshData, loading } = useAssets();
@@ -44,15 +44,15 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
       ? "w-72"
       : "w-0"
     : isNavCollapsed
-    ? "w-[72px]"
-    : "w-72";
+      ? "w-[72px]"
+      : "w-72";
 
   const navItems = [
-    { path: "/", label: "Dashboard", icon: Home },
-    { path: "/assets", label: "Asset Management", icon: HardDrive },
-    { path: "/licenses", label: "License Management", icon: Key },
-    { path: "/reports", label: "Reports & Analytics", icon: BarChart3 },
-    { path: "/settings", label: "Settings", icon: Settings },
+    { path: "/cmdb/", label: "Dashboard", icon: Home },
+    { path: "/cmdb/assets", label: "Asset Management", icon: HardDrive },
+    { path: "/cmdb/licenses", label: "License Management", icon: Key },
+    { path: "/cmdb/reports", label: "Reports & Analytics", icon: BarChart3 },
+    { path: "/cmdb/settings", label: "Settings", icon: Settings },
   ];
 
   const isActive = (path) => location.pathname === path;
@@ -112,8 +112,8 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
                     ? "Close menu"
                     : "Open menu"
                   : isNavCollapsed
-                  ? "Expand sidebar"
-                  : "Collapse sidebar"
+                    ? "Expand sidebar"
+                    : "Collapse sidebar"
               }
             >
               {isMobile ? (
