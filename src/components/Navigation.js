@@ -6,18 +6,15 @@ import {
   Key,
   BarChart3,
   Settings,
-  Menu,
   X,
   Database,
-  Shield,
-  Users,
   RefreshCw,
 } from "lucide-react";
 import AuthButtons from "./AuthButtons";
 import { useAssets } from "../context/AssetContext";
 
 const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isDesktopHovered, setIsDesktopHovered] = useState(false);
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 1024 : false,
   );
@@ -28,6 +25,7 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
     const onResize = () => {
       const mobile = window.innerWidth < 1024;
       setIsMobile(mobile);
+      setIsDesktopHovered(false);
       if (!mobile) {
         setIsMobileMenuOpen(false);
       }
@@ -36,16 +34,15 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
     return () => window.removeEventListener("resize", onResize);
   }, [setIsMobileMenuOpen]);
 
-  // On mobile, we want to show the full navigation when menu is open
-  // On desktop, we respect the collapsed state
-  const isNavCollapsed = isMobile ? !isMobileMenuOpen : isCollapsed;
+  const isDesktopExpanded = !isMobile && isDesktopHovered;
+  const isNavCollapsed = isMobile ? !isMobileMenuOpen : !isDesktopExpanded;
   const widthClass = isMobile
     ? isMobileMenuOpen
       ? "w-72"
       : "w-0"
-    : isNavCollapsed
-      ? "w-[72px]"
-      : "w-72";
+    : isDesktopExpanded
+      ? "w-72"
+      : "w-[72px]";
 
   const navItems = [
     { path: "/cmdb/", label: "Dashboard", icon: Home },
@@ -68,23 +65,44 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
       )}
 
       <nav
-        className={`fixed h-screen z-[1000] shadow-lg bg-gradient-to-br from-slate-800 to-slate-700 text-white transition-[width] duration-300 ${
-          isMobile ? "left-0" : ""
+        onMouseEnter={() => {
+          if (!isMobile) {
+            setIsDesktopHovered(true);
+          }
+        }}
+        onMouseLeave={() => {
+          if (!isMobile) {
+            setIsDesktopHovered(false);
+          }
+        }}
+        className={`fixed h-screen z-[1000] overflow-hidden bg-gradient-to-br from-slate-800 to-slate-700 text-white transition-[width] duration-300 ${
+          isMobile ? "left-0 shadow-lg" : "shadow-lg"
+        } ${
+          isMobile && !isMobileMenuOpen ? "pointer-events-none" : ""
         } ${widthClass}`}
       >
-        <div className="flex items-center justify-between px-4 sm:px-6 py-5 border-b border-white/10">
-          <div className="flex items-center gap-3">
+        <div
+          className={`flex items-center py-5 border-b border-white/10 ${
+            isNavCollapsed && !isMobile
+              ? "justify-center px-0"
+              : "justify-between px-4 sm:px-6"
+          }`}
+        >
+          <div
+            className={`flex items-center gap-3 ${
+              isNavCollapsed && !isMobile ? "justify-center w-full" : ""
+            }`}
+          >
+            <Database className="w-8 h-8 text-blue-400 shrink-0" />
             {!isNavCollapsed && (
-              <>
-                <Database className="w-8 h-8 text-blue-400" />
-                <span className="text-xl font-bold tracking-tight">
-                  SVH CMDB
-                </span>
-              </>
+              <span className="text-xl font-bold tracking-tight">
+                SVH CMDB
+              </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {!isNavCollapsed && (
+
+          {(isMobile || !isNavCollapsed) && (
+            <div className="flex items-center gap-2">
               <button
                 onClick={refreshData}
                 disabled={loading}
@@ -96,40 +114,17 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
                   className={loading ? "animate-spin" : ""}
                 />
               </button>
-            )}
-            <button
-              className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10"
-              onClick={() => {
-                if (isMobile) {
-                  setIsMobileMenuOpen(!isMobileMenuOpen);
-                } else {
-                  setIsCollapsed(!isCollapsed);
-                }
-              }}
-              title={
-                isMobile
-                  ? isMobileMenuOpen
-                    ? "Close menu"
-                    : "Open menu"
-                  : isNavCollapsed
-                    ? "Expand sidebar"
-                    : "Collapse sidebar"
-              }
-            >
-              {isMobile ? (
-                isMobileMenuOpen ? (
+              {isMobile && (
+                <button
+                  className="p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/10"
+                  onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                  title={isMobileMenuOpen ? "Close menu" : "Open menu"}
+                >
                   <X size={20} />
-                ) : (
-                  <></>
-                  // <Menu size={20} />
-                )
-              ) : isNavCollapsed ? (
-                <Menu size={20} />
-              ) : (
-                <X size={20} />
+                </button>
               )}
-            </button>
-          </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col py-4 h-[calc(100vh-76px)]">
@@ -163,17 +158,6 @@ const Navigation = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
 
           {!isNavCollapsed && (
             <div className="mt-auto px-4 pt-4 border-t border-white/10">
-              {/* <div className="space-y-2 text-slate-300 mb-3">
-                <div className="flex items-center gap-2 text-xs">
-                  <Shield size={14} />
-                  <span>CI/CD Test</span>
-                  <span>Secure CMDB</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <Users size={14} />
-                  <span>Multi-Venture</span>
-                </div>
-              </div> */}
               <AuthButtons />
             </div>
           )}
